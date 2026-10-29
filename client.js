@@ -421,6 +421,67 @@ window.__ModuleLoader__.load({ id: 'nekowhale-meme', factory: (require) => {
     return window.confirm('放弃本次未保存的修改，恢复成上次保存的状态？')
   }
 
+  /**
+   * 探测当前主题明暗，返回 'light' | 'dark'。
+   *
+   * 为什么需要：所有浮层/提示用了 CSS 系统色 `Canvas`。`Canvas` 是按
+   * `color-scheme` 解析的——宿主页面若不声明 color-scheme，它**一律解析成白色**，
+   * 于是暗色皮肤下会出现「白底白字」（toast 曾是白板）。
+   *
+   * 探测顺序：宿主 CSS 变量 → 祖先元素 computed background → prefers-color-scheme。
+   */
+  function detectScheme() {
+    try {
+      const root = document?.documentElement
+      if (!root) return 'light'
+      const cs = getComputedStyle(root)
+      // 1) 宿主若显式声明了 color-scheme，直接采信
+      const declared = (cs.colorScheme || '').trim()
+      if (declared === 'dark' || declared === 'light') return declared
+      // 2) 看宿主主色板变量（暗色主题通常给深底）
+      const bgVar = cs.getPropertyValue('--dsw-color-background') ||
+        cs.getPropertyValue('--dsw-color-bg') || ''
+      const lum = luminance(bgVar)
+      if (lum !== undefined) return lum < 0.5 ? 'dark' : 'light'
+      // 3) 实测 body 的计算背景色（皮肤渐变会给出颜色，取第一个色标）
+      const bodyBg = getComputedStyle(document.body || root).backgroundColor
+      const lum2 = luminance(bodyBg)
+      if (lum2 !== undefined) return lum2 < 0.5 ? 'dark' : 'light'
+      // 4) 兜底：系统偏好
+      if (typeof window?.matchMedia === 'function') {
+        return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+      }
+    } catch { /* 拿不到就按亮色 */ }
+    return 'light'
+  }
+
+  /** 从 CSS 颜色串估亮度（0 黑 – 1 白）；解析不了返回 undefined。 */
+  function luminance(color) {
+    const s = String(color ?? '').trim()
+    if (!s) return undefined
+    if (s === 'transparent') return undefined
+    // rgb()/rgba()：取加权亮度
+    const m = /rgba?\(([^)]+)\)/iu.exec(s)
+    if (m) {
+      const parts = m[1].split(/[,\s/]+/u).map((x) => parseFloat(x)).filter((x) => Number.isFinite(x))
+      if (parts.length >= 3) {
+        const [r, g, b] = parts
+        return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255
+      }
+    }
+    // 十六进制
+    const hex = /^#([0-9a-f]{3,8})$/iu.exec(s)
+    if (hex) {
+      const h = hex[1]
+      const expand = (v) => (v.length === 1 ? v + v : v)
+      const r = parseInt(expand(h.slice(0, 2)), 16)
+      const g = parseInt(expand(h.slice(2, 4)), 16)
+      const b = parseInt(expand(h.slice(4, 6)), 16)
+      if ([r, g, b].every(Number.isFinite)) return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255
+    }
+    return undefined
+  }
+
   function QueuePage({ st, reload, busy, setBusy, toast, onOpenSettings, dirty, saveSettings, discardSettings }) {
     const [ids, setIds] = useState([])
     const [model, setModel] = useState(null)
@@ -1133,6 +1194,8 @@ window.__ModuleLoader__.load({ id: 'nekowhale-meme', factory: (require) => {
 
     const full = props?.view === 'page'
     const style = full ? S.pageFull : S.page
+    // 声明 color-scheme，让 CSS 系统色 Canvas 按真实明暗解析（否则暗色下 toast 白底白字）
+    const scheme = detectScheme()
 
     const body = page === 'settings'
       ? h(SettingsPage, {
@@ -1146,13 +1209,13 @@ window.__ModuleLoader__.load({ id: 'nekowhale-meme', factory: (require) => {
         onOpenSettings: () => setPage('settings'),
       })
 
-    return h('div', { style },
+    return h('div', { style: { ...style, colorScheme: scheme } },
       err ? h('div', { style: S.warnBox }, err) : null,
       body,
       toastMsg ? h('div', {
-        style: { position: 'fixed', left: '50%', bottom: 24, transform: 'translateX(-50%)', zIndex: 10000, background: C.invertBg, color: C.invertFg, border: `1px solid ${C.border}`, borderRadius: 10, padding: '8px 14px', fontSize: 12 },
+        style: { position: 'fixed', left: '50%', bottom: 24, transform: 'translateX(-50%)', zIndex: 10000, background: C.invertBg, color: C.invertFg, border: `1px solid ${C.border}`, borderRadius: 10, padding: '8px 14px', fontSize: 12, colorScheme: scheme },
       }, toastMsg) : null,
-      popup ? h('div', { style: S.bubble, onClick: () => setPopup(null) },
+      popup ? h('div', { style: { ...S.bubble, colorScheme: scheme }, onClick: () => setPopup(null) },
         h('img', { src: popup.url, alt: popup.name, style: S.bubbleImg }),
         h('div', { style: { fontSize: 11, color: C.mute, textAlign: 'center', marginTop: 6 } }, popup.name || '')) : null,
     )
