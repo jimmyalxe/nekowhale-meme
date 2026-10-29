@@ -1013,29 +1013,14 @@ export function apply(ctx, config) {
       },
     })), 'nekowhale-meme: meme_import')
 
-    tctx.effect(() => tctx.tools.register(DT({
-      name: 'meme_tag',
-      description: '对「待识别」的图触发打标签（串行、可中止、25 个中文情绪单选）。不传 itemIds 则识别全部待识别。',
-      parameters: {
-        itemIds: { type: 'array', items: { type: 'string' }, description: '要识别的条目 id；留空=全部待识别' },
-      },
-      output: { schema: { type: 'object', additionalProperties: true, properties: { ok: { type: 'boolean' }, text: { type: 'string' } } }, render: (_a, v) => [{ type: 'text', text: v?.text ?? '' }] },
-      timeoutMs: 600000,
-      async execute(args) {
-        if (tagger.running) return { ok: false, text: '已经在识别中' }
-        const ids = Array.isArray(args?.itemIds) && args.itemIds.length > 0
-          ? args.itemIds.map(String)
-          : store.itemsByState(STATE_PENDING).map((it) => it.id)
-        const r = await tagger.run(ids, cfg.tagModel ?? undefined)
-        if (r?.error) return { ok: false, text: r.error }
-        const ok = r.results.filter((x) => x.ok).length
-        const bad = r.results.length - ok
-        return {
-          ok: bad === 0,
-          text: `识别完成：成功 ${ok} 张，失败 ${bad} 张${r.stopped ? '（已中止，其余保持待识别）' : ''}。成功的那批在「已标识·待确认」等你确认入库。`,
-        }
-      },
-    })), 'nekowhale-meme: meme_tag')
+    /**
+     * 这里**故意不注册 `meme_tag`**。
+     *
+     * 用户明确要求：「设定只能进入待识别区，必须有用户在设置界面进行确认操作才去让模型识别图片打标签」。
+     * 识别是会花 token 的动作，模型侧不该有"自己挑一批图开始识别"的能力——
+     * 触发入口只保留插件页队列页的「识别勾选」按钮（走 HTTP `/tag`，由用户当面点击）。
+     * 所以模型侧的工具名册是 4 个：import / search / send / list。
+     */
 
     tctx.effect(() => tctx.tools.register(DT({
       name: 'meme_search',
