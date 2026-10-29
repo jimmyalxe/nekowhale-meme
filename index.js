@@ -32,6 +32,9 @@ export const inject = []
 /** 唯一的路由前缀；客户端半按这个前缀取图与调接口。 */
 const ROUTE = '/nekowhale-meme'
 
+/** 「未分组」虚拟组的保留 id：不是真实分组，仅用于筛选 group 为空/失效的条目。 */
+const GROUP_UNGROUPED = '__ungrouped__'
+
 // ---------------------------------------------------------------- 初始表情包：直连 kiriyuki.com
 // 站点是公开的（无需 key/登录/装别的插件）：
 //   /api/manifest                清单：包/文件/hash/尺寸（无标签）
@@ -704,13 +707,26 @@ export function apply(ctx, config) {
       readonly: g.readonly === true,
       count: groupCounts[g.id] ?? 0,
     }))
+    // 「未分组」是虚拟组：group 字段为空、或指向一个已不存在分组的条目。
+    // 单独统计并排在最前，图多时能快速捞回散落的图。
+    const validGroupIds = new Set(store.groups().map((g) => g.id))
+    const ungroupedCount = store.itemsByState(STATE_LIBRARY)
+      .filter((it) => !it.group || !validGroupIds.has(it.group)).length
+    const groupsWithUngrouped = [
+      { id: GROUP_UNGROUPED, name: '未分组', readonly: false, count: ungroupedCount, virtual: true },
+      ...groups,
+    ]
     let items
     if (tab === 'pending') {
       items = store.itemsByState(STATE_PENDING)
     } else if (tab === 'tagged') {
       items = store.itemsByState(STATE_TAGGED)
     } else {
-      items = store.itemsByState(STATE_LIBRARY).filter((it) => (group ? it.group === group : true))
+      items = store.itemsByState(STATE_LIBRARY).filter((it) => {
+        if (!group) return true
+        if (group === GROUP_UNGROUPED) return !it.group || !validGroupIds.has(it.group)
+        return it.group === group
+      })
     }
     items = items.map((it) => publicItem(it))
     const health = store.readHealth()
@@ -719,7 +735,7 @@ export function apply(ctx, config) {
       tab,
       group,
       counts,
-      groups,
+      groups: groupsWithUngrouped,
       items,
       emotions: EMOTIONS,
       autoSend: cfg.autoSend,
@@ -1425,7 +1441,23 @@ export function apply(ctx, config) {
             }
             if (action === 'move') {
               const ids = Array.isArray(body?.ids) ? body.ids.map(String) : []
-              const r = await store.moveToGroup(ids, String(body?.to ?? ''))
+              const to = String(body?.to ?? '')
+              if (to === GROUP_UNGROUPED) {
+                // 「移出分组」：把 group 置空，条目落进虚拟的「未分组」。
+                const moved = []
+                for (const id of ids) {
+                  const it = store.item(id)
+                  if (!it || it.state !== STATE_LIBRARY) continue
+                  const g = store.group(it.group)
+                  if (g?.readonly) continue
+                  it.group = ''
+                  moved.push(id)
+                }
+                store.save()
+                json(res, 200, { ok: true, moved, failed: [] })
+                return
+              }
+              const r = await store.moveToGroup(ids, to)
               json(res, r.error ? 400 : 200, r.error ? { ok: false, error: r.error } : { ok: true, ...r })
               return
             }

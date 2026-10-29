@@ -540,7 +540,7 @@ window.__ModuleLoader__.load({ id: 'nekowhale-meme', factory: (require) => {
             h(Btn, { onClick: () => setIds(ids.length === items.length ? [] : items.map((i) => i.id)) }, ids.length === items.length && items.length > 0 ? '取消全选' : '全选'),
             h('select', { style: { ...S.select, minWidth: 130, maxWidth: 160 }, value: groupPick, onChange: (e) => setGroupPick(e.target.value) },
               h('option', { value: '' }, '入库到…（默认收藏）'),
-              (st.groups ?? []).filter((g) => !g.readonly).map((g) => h('option', { key: g.id, value: g.id }, g.name))),
+              (st.groups ?? []).filter((g) => !g.readonly && !g.virtual).map((g) => h('option', { key: g.id, value: g.id }, g.name))),
             h(Btn, {
               kind: 'primary', disabled: ids.length === 0 || busy,
               onClick: () => act(async () => {
@@ -575,13 +575,19 @@ window.__ModuleLoader__.load({ id: 'nekowhale-meme', factory: (require) => {
           h('div', { style: { ...S.row, marginBottom: 10 } },
             h('select', { style: { ...S.select, minWidth: 170 }, value: st.group ?? '', onChange: (e) => reload({ group: e.target.value }) },
               h('option', { value: '' }, `全部分组（${st.counts?.library ?? 0}）`),
-              (st.groups ?? []).map((g) => h('option', { key: g.id, value: g.id }, `${g.name}（${g.count}）${g.readonly ? ' 只读' : ''}`))),
+              (st.groups ?? []).map((g) => h('option', { key: g.id, value: g.id },
+                g.virtual
+                  ? `${g.name}（${g.count}）` + (g.count > 0 ? ' ⚠' : '')
+                  : `${g.name}（${g.count}）${g.readonly ? ' 只读' : ''}`))),
             h(Btn, { onClick: () => setShowGroups((v) => !v) }, showGroups ? '收起分组管理' : '管理分组')),
           showGroups ? h('div', { style: { borderTop: `1px solid ${C.border}`, paddingTop: 10, marginBottom: 10 } },
             (st.groups ?? []).map((g) => h('div', { key: g.id, style: { ...S.row, padding: '4px 0' } },
               h('span', { style: { flex: 1, fontSize: 13 } }, `${g.name}`),
-              h('span', { style: { fontSize: 11, color: C.mute, marginRight: 8 } }, `${g.count} 张${g.readonly ? ' · 只读' : ''}`),
-              g.readonly ? null : h('span', { style: S.row },
+              h('span', { style: { fontSize: 11, color: g.virtual && g.count > 0 ? C.warn : C.mute, marginRight: 8 } },
+                `${g.count} 张${g.virtual ? ' · 虚拟组' : g.readonly ? ' · 只读' : ''}`),
+              // 虚拟组（未分组）不能改名/删除——它没有真实分组行
+              (g.readonly || g.virtual) ? h('span', { style: { fontSize: 11, color: C.mute } },
+                g.virtual ? '这些图没有归属分组' : '只读') : h('span', { style: S.row },
                 h(Btn, {
                   onClick: () => {
                     const name = window.prompt('新的组名', g.name)
@@ -621,7 +627,9 @@ window.__ModuleLoader__.load({ id: 'nekowhale-meme', factory: (require) => {
                 })
                 e.target.value = ''
               },
-            }, h('option', { value: '' }, '改分组…'), (st.groups ?? []).filter((g) => !g.readonly).map((g) => h('option', { key: g.id, value: g.id }, g.name))),
+            }, h('option', { value: '' }, '改分组…'),
+              (st.groups ?? []).filter((g) => !g.readonly && !g.virtual).map((g) => h('option', { key: g.id, value: g.id }, g.name)),
+              h('option', { value: '__ungrouped__' }, '（移出分组）')),
             h(Btn, {
               kind: 'danger', disabled: ids.length === 0 || busy,
               onClick: () => { if (!window.confirm(`删除选中的 ${ids.length} 张？`)) return; act(() => apiPost('/delete', { ids, confirm: true, purgeFiles: true })) },
@@ -980,14 +988,13 @@ window.__ModuleLoader__.load({ id: 'nekowhale-meme', factory: (require) => {
             h('input', {
               type: 'radio', checked: a.trigger !== 'model', onChange: () => patchCfg((c) => ({ ...c, autoSend: { ...a, trigger: 'keywords' } })),
             }),
-            '情绪词匹配',
-            h('span', { style: { fontSize: 11, color: C.mute } }, '插件内置词表，零 token')),
+            '情绪词匹配'),
           h('label', { style: { ...S.row, gap: 6, fontSize: 13, marginLeft: 16 } },
             h('input', {
               type: 'radio', checked: a.trigger === 'model', onChange: () => patchCfg((c) => ({ ...c, autoSend: { ...a, trigger: 'model' } })),
             }),
-            '模型判断',
-            h('span', { style: { fontSize: 11, color: C.mute } }, '费 token'))),
+            '模型判断')),
+        // 只有费 token 的「模型判断」才出警告；词表匹配不写任何提示
         a.trigger === 'model' ? h('div', { style: S.warnBox },
           h('div', { style: { fontWeight: 700, marginBottom: 4 } }, '⚠ 模型判断模式'),
           h('div', null, '每轮额外调用模型判断情绪，持续消耗 token 与额度。')) : null),
