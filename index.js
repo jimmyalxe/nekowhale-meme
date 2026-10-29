@@ -14,17 +14,34 @@ import { execFile } from 'node:child_process'
 import { createReadStream, existsSync, readFileSync, rmSync, statSync } from 'node:fs'
 import { copyFile, mkdir, readdir, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
+import { createRequire } from 'node:module'
 import { basename, dirname, extname, isAbsolute, join, resolve } from 'node:path'
 import { EMOTIONS, STATE_LIBRARY, STATE_PENDING, STATE_TAGGED, Store, defaultDataDir, groupDirName, loadConfig, saveConfig } from './lib/store.js'
 import { Tagger, listModelCatalog, mediaTypeOf, resolveTagModel } from './lib/tagger.js'
 import { judgePrompt, matchEmotion } from './lib/keywords.js'
 
 /**
- * dsh-tools 的 defineTool 只是给类型/默认值的糖衣，运行时等价于恒等函数。
- * 这里**不导入它**（link 安装下裸导入可能失败），直接用普通对象注册 ——
- * 已由 dsh-pet-encore 实测可行（它就是这么注册工具的）。
+ * 工具定义必须用官方 `defineTool`。它是 `@deepseek-ai/dsh-tools` 的具名导出，
+ * **不是恒等函数**——负责把简写的 parameters/output 规范化成注册表要的完整 spec。
+ *
+ * 曾用普通对象冒充它（以为等价），结果五个工具在**新老会话都注册不上**（静默失败）。
+ * 参考实现 dsh-nekowhale-stickers 用的就是 `import { defineTool } from '@deepseek-ai/dsh-tools'`。
+ *
+ * 为什么不静态 import：离线测试/裸 Node 解析不到这个包（它只在 DSH loader 里被供给），
+ * 静态 import 会让 index.js 在测试里直接 import 失败。这里先试**同步**取（createRequire），
+ * 拿不到再退恒等（恒等分支只在测试用；真实宿主一定能取到官方实现）。
  */
-const defineTool = (spec) => spec
+let _defineTool = null
+function resolveDefineTool() {
+  if (_defineTool) return _defineTool
+  try {
+    const require = createRequire(import.meta.url)
+    const mod = require('@deepseek-ai/dsh-tools')
+    if (typeof mod?.defineTool === 'function') { _defineTool = mod.defineTool; return _defineTool }
+  } catch { /* 测试环境解析不到，走恒等 */ }
+  _defineTool = (spec) => spec
+  return _defineTool
+}
 
 export const name = 'nekowhale-meme'
 export const inject = []
@@ -886,7 +903,12 @@ export function apply(ctx, config) {
 
   // ---------------------------------------------------------------- 工具（模型侧）
   ctx.inject(['tools'], (tctx) => {
-    tctx.effect(() => tctx.tools.register(defineTool({
+    registerTools(tctx, resolveDefineTool())
+  })
+
+  /** 五个工具的实际注册。DT = 官方 defineTool（测试环境下退化为恒等）。 */
+  function registerTools(tctx, DT) {
+    tctx.effect(() => tctx.tools.register(DT({
       name: 'meme_import',
       description: '把一张图收进表情库的「待识别」队列（只进队列，不触发识别）。来源可以是本地路径、URL，或留空取本会话最近一张附件。',
       parameters: {
@@ -921,7 +943,7 @@ export function apply(ctx, config) {
       },
     })), 'nekowhale-meme: meme_import')
 
-    tctx.effect(() => tctx.tools.register(defineTool({
+    tctx.effect(() => tctx.tools.register(DT({
       name: 'meme_tag',
       description: '对「待识别」的图触发打标签（串行、可中止、25 个中文情绪单选）。不传 itemIds 则识别全部待识别。',
       parameters: {
@@ -946,7 +968,7 @@ export function apply(ctx, config) {
       },
     })), 'nekowhale-meme: meme_tag')
 
-    tctx.effect(() => tctx.tools.register(defineTool({
+    tctx.effect(() => tctx.tools.register(DT({
       name: 'meme_search',
       description: '在已入库可用的图里检索（只搜 library 且未停用的条目）。返回每张的显示名、情绪、标签与图片地址。',
       parameters: {
@@ -979,7 +1001,7 @@ export function apply(ctx, config) {
       },
     })), 'nekowhale-meme: meme_search')
 
-    tctx.effect(() => tctx.tools.register(defineTool({
+    tctx.effect(() => tctx.tools.register(DT({
       name: 'meme_send',
       description: '发一张表情：给名字/情绪词/情境词任一种，挑一张返回 Markdown 图片行（含失效兜底：文件坏了就换下一张，最多 3 张）。',
       parameters: {
@@ -1027,7 +1049,7 @@ export function apply(ctx, config) {
       },
     })), 'nekowhale-meme: meme_send')
 
-    tctx.effect(() => tctx.tools.register(defineTool({
+    tctx.effect(() => tctx.tools.register(DT({
       name: 'meme_list',
       description: '列队列或库存：待识别 / 已标识待确认 / 已入库（可限分组），用于查看现状而不是检索。',
       parameters: {
@@ -1050,7 +1072,7 @@ export function apply(ctx, config) {
         return { ok: true, text: `共 ${all.length} 条${all.length > limit ? `，列前 ${limit} 条` : ''}：\n${rows.join('\n')}` }
       },
     })), 'nekowhale-meme: meme_list')
-  })
+  }
 
   // ---------------------------------------------------------------- HTTP 路由
   ctx.inject(['webServer'], (wctx) => {
