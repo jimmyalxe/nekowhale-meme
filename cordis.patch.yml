@@ -1,0 +1,7 @@
+# nekowhale-meme bundle layer.
+# One host row. Config defaults live in the plugin's own Config schema; the
+# editable settings live in <dataDir>/config.json and are written by the plugin
+# itself (the settings page posts to the plugin's own route).
+- insert:
+    - id: nekowhale-meme
+      name: nekowhale-meme

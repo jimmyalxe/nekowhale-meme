@@ -1,0 +1,33 @@
+# 依赖
+node_modules/
+.pnpm-store/
+
+# 打包产物（发布用的 zip 不该进仓库）
+*.tgz
+*.zip
+dist/
+
+# 调试与备份
+*.log
+*.bak
+*.tmp
+npm-debug.log*
+pnpm-debug.log*
+test/.tmp/
+
+# 插件运行时数据（不属于源码）
+data/
+nekowhale-meme-data/
+inbox/
+pending/
+library/
+index.json
+health.json
+
+# 系统 / 编辑器
+.DS_Store
+Thumbs.db
+*.swp
+*~
+.idea/
+.vscode/

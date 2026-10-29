@@ -1,0 +1,39 @@
+nekowhale-meme
+Copyright 2026 nekowhale-meme contributors
+
+Source: https://github.com/jimmyalxe/nekowhale-meme
+
+This plugin's source code is licensed under the Apache License, Version 2.0
+(see LICENSE).
+
+--------------------------------------------------------------------------
+Sticker artwork, annotation data and templates
+--------------------------------------------------------------------------
+
+Sticker artwork and templates by 可以叫我云大人 / 雾雪
+  Bilibili: https://space.bilibili.com/103739
+  Website:  https://kiriyuki.com
+大肥鱼 character design based on ZipZipPipe (https://space.bilibili.com/4168597)
+  and 上善无形 (https://space.bilibili.com/4456176); GPT娘 design based on ZipZipPipe.
+
+This plugin SHIPS NO STICKER ARTWORK. All GIFs, character portraits and
+templates are fetched at runtime from https://kiriyuki.com by the user's own
+action, and are not distributed as part of this repository.
+
+The sticker annotation data this plugin downloads
+(https://kiriyuki.com/meme/kit/nekowhale.json — emotion / tags / use / desc)
+is licensed under CC BY-NC 4.0 (see LICENSE-ASSETS): redistribution is allowed
+only if the original author's links and website are kept, and no fee may be
+charged for it or any other commercial use made of it.
+
+Modified versions, and republished software with the same features, must keep
+this NOTICE, i.e. credit this repository address and link the sticker author.
+
+--------------------------------------------------------------------------
+Reference implementation
+--------------------------------------------------------------------------
+
+The feature design (pending queue / tagging / grouping) and the 25-emotion
+vocabulary follow dsh-nekowhale-stickers:
+  https://github.com/Loping151/dsh-nekowhale-stickers
+No source code from that project is copied into this one.

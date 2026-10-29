@@ -1,0 +1,67 @@
+{
+  "name": "nekowhale-meme",
+  "version": "1.0.0",
+  "description": "大肥鱼表情库：待识别队列 / 打标签 / 分组管理 / AI 检索发图 / 应景斗图。自包含，不依赖其他插件。",
+  "type": "module",
+  "main": "index.js",
+  "icon": "./icon.svg",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "lib",
+    "cordis.patch.yml",
+    "icon.svg",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE",
+    "LICENSE-ASSETS",
+    "NOTICE"
+  ],
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "sticker",
+    "meme",
+    "表情包",
+    "大肥鱼"
+  ],
+  "license": "Apache-2.0 AND CC-BY-NC-4.0",
+  "author": "jimmyalxe",
+  "homepage": "https://github.com/jimmyalxe/nekowhale-meme#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jimmyalxe/nekowhale-meme.git"
+  },
+  "bugs": {
+    "url": "https://github.com/jimmyalxe/nekowhale-meme/issues"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-renderer",
+        "@deepseek-ai/dsh-client-ui-layout"
+      ]
+    }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/schemastery": ">=3.18.2"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/schemastery": {
+      "optional": true
+    }
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
