@@ -1,6 +1,6 @@
 {
   "name": "nekowhale-meme",
-  "version": "1.0.0",
+  "version": "1.2.0",
   "description": "大肥鱼表情库：待识别队列 / 打标签 / 分组管理 / AI 检索发图 / 应景斗图。自包含，不依赖其他插件。",
   "type": "module",
   "main": "index.js",

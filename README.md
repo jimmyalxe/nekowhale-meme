@@ -31,6 +31,9 @@
 | **已标识·待确认** | 确认入库（可选目标组）/ 重新识别 / 删除勾选；每项「情绪｜描述｜关键词」+ 编辑面板 |
 | **已入库·可用** | 分组选择器 + `管理分组`（新建/重命名/删除都在这里）；移出到待确认 / 改分组 / 删除勾选 |
 
+> **三个状态的图都能编辑**（显示名 / 情绪 / 标签 / 适用场景 / 描述）：待识别可先填标注，
+> 待确认正好用来核对模型输出，库内日常修正。**唯一例外是只读组**（从站点下载的角色包），组里的图不可编辑。
+
 ### 设置页
 
 - **基础**
@@ -70,10 +73,32 @@ nekowhale-meme        ● 未保存  [放弃]  [保存]  [⚙]     ← 队列页
 dsh plugin --profile desktop add github:jimmyalxe/nekowhale-meme
 ```
 
-装完重启 DSH。**改版本号后必须先 `remove_bundle` 再 `install_bundle`**（不能覆盖）。
+装完**刷新插件页**即可（工具/接口在插件装载后即生效）。
+**换版本必须先 remove 再 add，不能覆盖安装**：
+
+```bash
+dsh plugin --profile desktop remove nekowhale-meme
+dsh plugin --profile desktop add github:jimmyalxe/nekowhale-meme
+```
 
 > 如果机器无法直连 GitHub，先装 [`@copylee/dsh-proxy`](https://www.npmjs.com/package/@copylee/dsh-proxy)
 > 并在设置里设为「跟随系统代理」——DSH 基于 Node，本身不读 Windows 的系统代理设置。
+
+### 本地开发
+
+开发目录用 `link:` 装，改完代码热重载即可，不用碰 GitHub：
+
+```bash
+dsh plugin --profile desktop add "link:<开发目录绝对路径>"
+```
+
+两个前提：
+1. 开发目录里要能解析 peer 依赖 `@deepseek-ai/schemastery`，否则宿主加载失败会**静默留在旧版本**。
+   本机做法是把 profile 的依赖链进来：
+   `New-Item -ItemType Junction -Path node_modules\@deepseek-ai -Target <profile>\node_modules\@deepseek-ai`
+2. **CLI 的 add/remove 只改依赖，不触发宿主重载**。要让新代码真正生效，走插件管理器接口：
+   `POST /api/plugin-manager/remove {"id":"nekowhale-meme"}` → `POST /api/plugin-manager/install {"spec":"link:..."}`
+   → 轮询 `GET /api/plugin-manager/status?job=<jobId>` 到 `phase=done`。
 
 ## 数据目录
 
@@ -156,11 +181,14 @@ pending ──识别成功──▶ tagged ──确认入库──▶ library
 
 | 工具 | 作用 |
 |---|---|
-| `meme_import` | 收进待识别队列（`path` / `url`） |
+| `meme_import` | 收进待识别队列。可给 `path` / `url`；**都留空 = 取本会话最近一张聊天附件** |
 | `meme_tag` | 对队列触发识别（串行、可中止） |
-| `meme_search` | 搜已入库图，返回标签与图片地址 |
-| `meme_send` | 发图（含失效兜底） |
+| `meme_search` | 搜已入库图，返回标签与图片地址（绝对 URL，聊天界面可直接显示） |
+| `meme_send` | 发图（含失效兜底：坏了就换下一张，最多 3 张） |
 | `meme_list` | 列队列或库 |
+
+> 收图格式**按文件头判**，不看扩展名——聊天附件是内容寻址的（`attachments/v1/objects/<sha256>`，没有后缀），
+> 所以留空取附件能直接用；同时改了后缀的假图片也会被挡住。
 
 ## HTTP 路由
 

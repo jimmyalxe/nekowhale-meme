@@ -802,10 +802,50 @@ export function apply(ctx, config) {
   function sessionSlot(sid) {
     let s = sessions.get(sid)
     if (!s) {
-      s = { lastUserText: '', turn: 0, sentTurns: [], popup: null }
+      s = { lastUserText: '', turn: 0, sentTurns: [], popup: null, lastImage: null }
       sessions.set(sid, s)
     }
     return s
+  }
+
+  /**
+   * 从一条用户消息里取「最近一张图片附件」，登记到本会话 slot。
+   *
+   * 只记**序号最后一个** image 块（同一条消息里发了多张时，最后一张才是"最近"）。
+   * 附件是内容寻址的（`attachments/v1/objects/<sha256>`，无扩展名），
+   * 这里只存 ref 不读字节——真正导入时才通过 attachments 服务转成路径。
+   */
+  function rememberImage(slot, content) {
+    if (!Array.isArray(content)) return
+    let found = null
+    for (const block of content) {
+      if (typeof block !== 'object' || block === null) continue
+      if (block.type === 'image' && block.attachment && typeof block.attachment === 'object') found = block.attachment
+    }
+    if (found) slot.lastImage = found
+  }
+
+  /**
+   * 把附件 ref 变成「可以直接 copyFile 的本地路径 + 建议显示名」。
+   * 先试 attachments 服务的 imageHostPath()（宿主给的官方入口），
+   * 服务不可用或拿不到时退回按 sha256 拼 objects 路径。
+   * @returns { src, name } 或 undefined
+   */
+  function attachmentToPath(ref) {
+    if (!ref) return undefined
+    const store = ctx.get('attachments')
+    if (store?.imageHostPath) {
+      try {
+        const p = store.imageHostPath(ref)
+        if (typeof p === 'string' && p && existsSync(p)) return { src: p, name: ref.name }
+      } catch { /* 退回手工拼路径 */ }
+    }
+    const id = String(ref.attachmentId ?? '')
+    const m = /^sha256:([0-9a-f]{64})$/u.exec(id)
+    if (!m) return undefined
+    const home = process.env.DSH_HOME || join(process.env.USERPROFILE ?? '', '.dsh')
+    const p = join(home, 'attachments', 'v1', 'objects', m[1].slice(0, 2), m[1])
+    return existsSync(p) ? { src: p, name: ref.name } : undefined
   }
 
   /** 每个会话的「最近 10 轮内已发几张」。 */
@@ -893,6 +933,7 @@ export function apply(ctx, config) {
       if (event?.surfaceOp !== 'append') return
       if (event?.data?.source?.kind !== 'user') return
       slot.lastUserText = textOfContent(event?.data?.content)
+      rememberImage(slot, event?.data?.content)
       return
     }
     if (type !== 'turn/end') return
@@ -905,11 +946,13 @@ export function apply(ctx, config) {
    * 工具输出里给**模型/聊天界面**看的图片必须拼成绝对 URL：
    * GUI 的 Markdown 预览不解析相对路径（实测显示「图片无法预览」）。
    * 浏览器半（client.js 在宿主页面内 fetch）不受影响，仍用相对 URL。
-   * 取不到端口就退回相对路径（总比整条消息报错好）。
+   * 端口惰性读自已注入的 webSrv（根 ctx.get 拿不到未声明的服务），
+   * 取不到就退回相对路径（总比整条消息报错好）。
    */
+  let webSrv
   function imgUrl(id) {
     const rel = `${ROUTE}/image/${encodeURIComponent(id)}`
-    const port = ctx.get('webServer')?.port
+    const port = webSrv?.port
     return port === undefined ? rel : `http://127.0.0.1:${port}${rel}`
   }
 
@@ -929,11 +972,22 @@ export function apply(ctx, config) {
         group: { type: 'string', description: '入库目标分组 id（可选，默认 fav）' },
       },
       output: { schema: { type: 'object', additionalProperties: true, properties: { ok: { type: 'boolean' }, text: { type: 'string' } } }, render: (_a, v) => [{ type: 'text', text: v?.text ?? '' }] },
-      async execute(args) {
+      async execute(args, exec) {
         const p = typeof args?.path === 'string' ? args.path.trim() : ''
         const u = typeof args?.url === 'string' ? args.url.trim() : ''
-        if (!p && !u) return { ok: false, text: '请给 path 或 url（聊天附件请直接在插件页上传）' }
         let src = p
+        let fromChat = false
+        if (!p && !u) {
+          // 没给来源 → 取本会话最近一张聊天附件（描述里承诺过这个行为）
+          const sid = String(exec?.agent?.session?.header?.id ?? exec?.agent?.session?.id ?? '')
+          const ref = sid ? sessionSlot(sid).lastImage : undefined
+          const got = attachmentToPath(ref)
+          if (!got) {
+            return { ok: false, text: '没找到可用的聊天附件：请给 path / url，或先在对话里发一张图再直接调用（不带图片消息时无法猜测要哪张）。' }
+          }
+          src = got.src
+          fromChat = true
+        }
         if (u) {
           try {
             const res = await fetch(u, { signal: AbortSignal.timeout(20000) })
@@ -948,7 +1002,12 @@ export function apply(ctx, config) {
             return { ok: false, text: `下载出错：${e?.message ?? e}` }
           }
         }
-        const r = await store.addToPending(src, { group: args?.group, source: u ? 'url' : 'path' })
+        const chatName = fromChat ? String(sessionSlot(String(exec?.agent?.session?.header?.id ?? exec?.agent?.session?.id ?? '')).lastImage?.name ?? '') : ''
+        const r = await store.addToPending(src, {
+          group: args?.group,
+          source: u ? 'url' : (fromChat ? 'chat' : 'path'),
+          ...(fromChat && chatName ? { originalName: chatName, displayName: basename(chatName, extname(chatName)) } : {}),
+        })
         if (r?.skipped) return { ok: false, text: r.skipped }
         return { ok: true, text: `已进待识别队列：${r.originalName}（id ${r.id}）。到队列页点「识别勾选」打标签。` }
       },
@@ -1083,6 +1142,7 @@ export function apply(ctx, config) {
 
   // ---------------------------------------------------------------- HTTP 路由
   ctx.inject(['webServer'], (wctx) => {
+    webSrv = wctx.webServer
     wctx.effect(() => wctx.webServer.register({
       kind: 'prefix',
       path: ROUTE,
