@@ -67,18 +67,21 @@ nekowhale-meme        ● 未保存  [放弃]  [保存]  [⚙]     ← 队列页
 ## 安装
 
 ```bash
-# 从本地目录
-dsh plugin --profile desktop add "link:/绝对路径/nekowhale-meme"
-
-# 或用 plugin manager 的 install_bundle 指向该目录
+dsh plugin --profile desktop add github:jimmyalxe/nekowhale-meme
 ```
 
 装完重启 DSH。**改版本号后必须先 `remove_bundle` 再 `install_bundle`**（不能覆盖）。
 
+> 如果机器无法直连 GitHub，先装 [`@copylee/dsh-proxy`](https://www.npmjs.com/package/@copylee/dsh-proxy)
+> 并在设置里设为「跟随系统代理」——DSH 基于 Node，本身不读 Windows 的系统代理设置。
+
 ## 数据目录
 
 默认 **`$DSH_HOME/nekowhale-meme`**（与其他 DSH 插件的约定一致，不会写死某个盘符）。
-设置页里可以改成任意位置（包括别的盘）。换目录后原目录的数据**留在原地不自动搬**。
+设置页里可以改成任意位置（包括别的盘）。
+
+换目录时会**把图库与索引整体搬迁**到新目录（剪切，旧目录随即清空），不占双份磁盘；
+新目录已有同名文件时跳过不覆盖；有文件搬失败则中止切换并保留原目录，不会出现半截数据。
 
 ```
 <dataDir>
