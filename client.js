@@ -43,8 +43,19 @@ window.__ModuleLoader__.load({ id: 'nekowhale-meme', factory: (require) => {
     warnBorder: 'color-mix(in srgb, #d97706 45%, Canvas)',
     // 浮层（下拉面板、气泡）用更实的底，确保压在任何内容上都清楚
     raised: 'Canvas',
-    invertBg: 'color-mix(in srgb, currentColor 92%, Canvas)',
-    invertFg: 'Canvas',
+  }
+
+  /**
+   * 反色浮层（toast / 气泡）的配色。
+   *
+   * 不能用 `currentColor` 派生：同一个元素上 `color: X` +
+   * `background: color-mix(… currentColor …)` 会让 currentColor 解析成 X 本身，
+   * 底和字变成同一个颜色 → 白底白字纯色块。这里按明暗显式给两个不同色。
+   */
+  function invertColors(scheme) {
+    return scheme === 'dark'
+      ? { bg: '#f2f2f5', fg: '#1b1b20' }   // 暗主题 → 浅底深字
+      : { bg: '#1b1b20', fg: '#f2f2f5' }   // 亮主题 → 深底浅字
   }
   const S = {
     // 页面整体铺不透明底：皮肤是渐变/图片背景时，半透明容器会让文字对比度不足
@@ -137,8 +148,8 @@ window.__ModuleLoader__.load({ id: 'nekowhale-meme', factory: (require) => {
     }),
     bubble: {
       position: 'fixed', right: 20, bottom: 20, zIndex: 9999, padding: 10, borderRadius: 14,
-      background: C.invertBg, color: C.invertFg, border: `1px solid ${C.border}`, boxShadow: '0 12px 32px rgba(0,0,0,.35)',
-      maxWidth: 200,
+      border: `1px solid ${C.border}`, boxShadow: '0 12px 32px rgba(0,0,0,.35)',
+    maxWidth: 200,
     },
     bubbleImg: { width: 140, height: 'auto', borderRadius: 8, display: 'block', margin: '0 auto' },
   }
@@ -1194,8 +1205,9 @@ window.__ModuleLoader__.load({ id: 'nekowhale-meme', factory: (require) => {
 
     const full = props?.view === 'page'
     const style = full ? S.pageFull : S.page
-    // 声明 color-scheme，让 CSS 系统色 Canvas 按真实明暗解析（否则暗色下 toast 白底白字）
+    // 探测主题明暗：供 colorScheme 声明 + 反色浮层配色
     const scheme = detectScheme()
+    const inv = invertColors(scheme)
 
     const body = page === 'settings'
       ? h(SettingsPage, {
@@ -1213,9 +1225,9 @@ window.__ModuleLoader__.load({ id: 'nekowhale-meme', factory: (require) => {
       err ? h('div', { style: S.warnBox }, err) : null,
       body,
       toastMsg ? h('div', {
-        style: { position: 'fixed', left: '50%', bottom: 24, transform: 'translateX(-50%)', zIndex: 10000, background: C.invertBg, color: C.invertFg, border: `1px solid ${C.border}`, borderRadius: 10, padding: '8px 14px', fontSize: 12, colorScheme: scheme },
+        style: { position: 'fixed', left: '50%', bottom: 24, transform: 'translateX(-50%)', zIndex: 10000, background: inv.bg, color: inv.fg, border: `1px solid ${C.border}`, borderRadius: 10, padding: '8px 14px', fontSize: 12, colorScheme: scheme },
       }, toastMsg) : null,
-      popup ? h('div', { style: { ...S.bubble, colorScheme: scheme }, onClick: () => setPopup(null) },
+      popup ? h('div', { style: { ...S.bubble, colorScheme: scheme, background: inv.bg, color: inv.fg }, onClick: () => setPopup(null) },
         h('img', { src: popup.url, alt: popup.name, style: S.bubbleImg }),
         h('div', { style: { fontSize: 11, color: C.mute, textAlign: 'center', marginTop: 6 } }, popup.name || '')) : null,
     )
