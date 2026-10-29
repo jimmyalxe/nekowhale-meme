@@ -916,8 +916,7 @@ export function apply(ctx, config) {
         url: { type: 'string', description: '图片 URL（可选）' },
         group: { type: 'string', description: '入库目标分组 id（可选，默认 fav）' },
       },
-      output: { schema: { type: 'object', additionalProperties: true, properties: { ok: { type: 'boolean' }, text: { type: 'string' } } } },
-      render: (_a, v) => [{ type: 'text', text: v?.text ?? '' }],
+      output: { schema: { type: 'object', additionalProperties: true, properties: { ok: { type: 'boolean' }, text: { type: 'string' } } }, render: (_a, v) => [{ type: 'text', text: v?.text ?? '' }] },
       async execute(args) {
         const p = typeof args?.path === 'string' ? args.path.trim() : ''
         const u = typeof args?.url === 'string' ? args.url.trim() : ''
@@ -949,8 +948,7 @@ export function apply(ctx, config) {
       parameters: {
         itemIds: { type: 'array', items: { type: 'string' }, description: '要识别的条目 id；留空=全部待识别' },
       },
-      output: { schema: { type: 'object', additionalProperties: true, properties: { ok: { type: 'boolean' }, text: { type: 'string' } } } },
-      render: (_a, v) => [{ type: 'text', text: v?.text ?? '' }],
+      output: { schema: { type: 'object', additionalProperties: true, properties: { ok: { type: 'boolean' }, text: { type: 'string' } } }, render: (_a, v) => [{ type: 'text', text: v?.text ?? '' }] },
       timeoutMs: 600000,
       async execute(args) {
         if (tagger.running) return { ok: false, text: '已经在识别中' }
@@ -977,8 +975,7 @@ export function apply(ctx, config) {
         group: { type: 'string', description: '限定分组 id' },
         limit: { type: 'integer', description: '返回条数，默认 5，最多 20' },
       },
-      output: { schema: { type: 'object', additionalProperties: true, properties: { ok: { type: 'boolean' }, text: { type: 'string' } } } },
-      render: (_a, v) => [{ type: 'text', text: v?.text ?? '' }],
+      output: { schema: { type: 'object', additionalProperties: true, properties: { ok: { type: 'boolean' }, text: { type: 'string' } } }, render: (_a, v) => [{ type: 'text', text: v?.text ?? '' }] },
       async execute(args) {
         const q = String(args?.query ?? '').trim().toLowerCase()
         const emotion = String(args?.emotion ?? '').trim()
@@ -1009,8 +1006,7 @@ export function apply(ctx, config) {
         emotion: { type: 'string', description: '情绪词，随机挑一张' },
         query: { type: 'string', description: '情境词' },
       },
-      output: { schema: { type: 'object', additionalProperties: true, properties: { ok: { type: 'boolean' }, text: { type: 'string' } } } },
-      render: (_a, v) => [{ type: 'text', text: v?.text ?? '' }],
+      output: { schema: { type: 'object', additionalProperties: true, properties: { ok: { type: 'boolean' }, text: { type: 'string' } } }, render: (_a, v) => [{ type: 'text', text: v?.text ?? '' }] },
       async execute(args) {
         const name = String(args?.name ?? '').trim().toLowerCase()
         const emotion = String(args?.emotion ?? '').trim()
@@ -1057,8 +1053,7 @@ export function apply(ctx, config) {
         group: { type: 'string', description: '限定分组 id' },
         limit: { type: 'integer', description: '最多列几条，默认 30' },
       },
-      output: { schema: { type: 'object', additionalProperties: true, properties: { ok: { type: 'boolean' }, text: { type: 'string' } } } },
-      render: (_a, v) => [{ type: 'text', text: v?.text ?? '' }],
+      output: { schema: { type: 'object', additionalProperties: true, properties: { ok: { type: 'boolean' }, text: { type: 'string' } } }, render: (_a, v) => [{ type: 'text', text: v?.text ?? '' }] },
       async execute(args) {
         const status = ['pending', 'tagged', 'library'].includes(String(args?.status)) ? String(args.status) : STATE_LIBRARY
         const group = String(args?.group ?? '').trim()
