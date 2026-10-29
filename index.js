@@ -1445,16 +1445,18 @@ export function apply(ctx, config) {
               if (to === GROUP_UNGROUPED) {
                 // 「移出分组」：把 group 置空，条目落进虚拟的「未分组」。
                 const moved = []
+                const failed = []
                 for (const id of ids) {
                   const it = store.item(id)
-                  if (!it || it.state !== STATE_LIBRARY) continue
+                  if (!it || it.state !== STATE_LIBRARY) { failed.push({ id, reason: '条目不在库内' }); continue }
                   const g = store.group(it.group)
-                  if (g?.readonly) continue
+                  // 只读组（从站点下载的角色包）不允许移出——要明确回报原因，不能静默跳过
+                  if (g?.readonly) { failed.push({ id, reason: `「${g.name}」是只读组，不能移出` }); continue }
                   it.group = ''
                   moved.push(id)
                 }
                 store.save()
-                json(res, 200, { ok: true, moved, failed: [] })
+                json(res, 200, { ok: failed.length === 0, moved, failed })
                 return
               }
               const r = await store.moveToGroup(ids, to)

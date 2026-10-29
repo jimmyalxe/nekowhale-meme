@@ -623,7 +623,13 @@ window.__ModuleLoader__.load({ id: 'nekowhale-meme', factory: (require) => {
                 if (!to || ids.length === 0) { e.target.value = ''; return }
                 act(async () => {
                   const r = await apiPost('/group', { action: 'move', ids, to })
-                  toast(`移动 ${r.moved.length} 张${r.failed?.length ? `，${r.failed.length} 张失败` : ''}`)
+                  const failN = r.failed?.length ?? 0
+                  if (failN > 0 && r.moved.length === 0) {
+                    // 全部失败时把具体原因说出来（典型：只读组不能移出）
+                    toast(`没有移动：${r.failed[0]?.reason ?? '未知原因'}`)
+                    return
+                  }
+                  toast(`移动 ${r.moved.length} 张${failN > 0 ? `，${failN} 张失败（${r.failed[0]?.reason ?? ''}）` : ''}`)
                 })
                 e.target.value = ''
               },
