@@ -901,6 +901,18 @@ export function apply(ctx, config) {
     void maybeAutoSend(sid, slot).catch((e) => warn(`斗图出错：${e?.message ?? e}`))
   }))
 
+  /**
+   * 工具输出里给**模型/聊天界面**看的图片必须拼成绝对 URL：
+   * GUI 的 Markdown 预览不解析相对路径（实测显示「图片无法预览」）。
+   * 浏览器半（client.js 在宿主页面内 fetch）不受影响，仍用相对 URL。
+   * 取不到端口就退回相对路径（总比整条消息报错好）。
+   */
+  function imgUrl(id) {
+    const rel = `${ROUTE}/image/${encodeURIComponent(id)}`
+    const port = ctx.get('webServer')?.port
+    return port === undefined ? rel : `http://127.0.0.1:${port}${rel}`
+  }
+
   // ---------------------------------------------------------------- 工具（模型侧）
   ctx.inject(['tools'], (tctx) => {
     registerTools(tctx, resolveDefineTool())
@@ -993,7 +1005,7 @@ export function apply(ctx, config) {
           })
           .slice(0, limit)
         if (hits.length === 0) return { ok: false, text: '没有匹配的表情。换个情绪词，或到插件页确认「AI 可用组」是否勾选了这个组。' }
-        const lines = hits.map((it, i) => `${i + 1}. ${it.displayName}｜${it.emotion}｜${(it.tags ?? []).join(',')}｜${it.use || it.desc || ''}\n   ![${it.displayName}](${ROUTE}/image/${encodeURIComponent(it.id)})`)
+        const lines = hits.map((it, i) => `${i + 1}. ${it.displayName}｜${it.emotion}｜${(it.tags ?? []).join(',')}｜${it.use || it.desc || ''}\n   ![${it.displayName}](${imgUrl(it.id)})`)
         return { ok: true, text: `找到 ${hits.length} 张：\n${lines.join('\n')}\n把 ]( 那行原样放进回复就能显示。` }
       },
     })), 'nekowhale-meme: meme_search')
@@ -1033,7 +1045,7 @@ export function apply(ctx, config) {
           let ok = false
           try { ok = existsSync(p) && statSync(p).size > 0 } catch { ok = false }
           if (ok) {
-            return { ok: true, text: `![${pick.displayName}](${ROUTE}/image/${encodeURIComponent(pick.id)})\n把上面这行原样放进回复即可显示。` }
+            return { ok: true, text: `![${pick.displayName}](${imgUrl(pick.id)})\n把上面这行原样放进回复即可显示。` }
           }
           store.addMissing({
             id: pick.id, displayName: pick.displayName, originalName: pick.originalName,
