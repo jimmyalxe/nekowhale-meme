@@ -6,7 +6,7 @@
 
 **完全不依赖任何其他插件。** 初始表情包直接连公开站点 [kiriyuki.com](https://kiriyuki.com)
 （清单 `/api/manifest`、图 `/media/gif`、作者标注 `/meme/kit/nekowhale.json`），
-不需要装 `dsh-nekowhale-stickers`，也不需要它提供任何服务。
+不需要装 `dsh-nekowhale-stickers`([https://kiriyuki.com](https://github.com/Loping151/dsh-nekowhale-stickers))，也不需要它提供任何服务。
 
 ---
 
@@ -80,9 +80,6 @@ dsh plugin --profile desktop add github:jimmyalxe/nekowhale-meme
 dsh plugin --profile desktop remove nekowhale-meme
 dsh plugin --profile desktop add github:jimmyalxe/nekowhale-meme
 ```
-
-> 如果机器无法直连 GitHub，先装 [`@copylee/dsh-proxy`](https://www.npmjs.com/package/@copylee/dsh-proxy)
-> 并在设置里设为「跟随系统代理」——DSH 基于 Node，本身不读 Windows 的系统代理设置。
 
 ### 本地开发
 
