@@ -6,7 +6,7 @@
 
 **完全不依赖任何其他插件。** 初始表情包直接连公开站点 [kiriyuki.com](https://kiriyuki.com)
 （清单 `/api/manifest`、图 `/media/gif`、作者标注 `/meme/kit/nekowhale.json`），
-不需要装 `([dsh-nekowhale-stickers](https://github.com/Loping151/dsh-nekowhale-stickers))`，也不需要它提供任何服务。
+不需要装 [dsh-nekowhale-stickers](https://github.com/Loping151/dsh-nekowhale-stickers)`，也不需要它提供任何服务。
 
 ---
 
