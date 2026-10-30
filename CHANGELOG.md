@@ -15,7 +15,15 @@
 
 ### 本轮修复（相对未发布的早期开发版）
 - **五个模型工具之前根本注册不上**：`defineTool` 不是恒等函数，自己写的替身会让
-  `tools.register` 静默失败（工具在新老会话都调不到且无报错）。已改为同步取官方实现。
+  `tools.register` 静默失败（工具在新老会话都调不到且无报错）。现在工具定义由本地
+  `DT()` 统一规范化（见下一条），不再依赖能否导入宿主包。
+- **工具 schema 缺 `type` 会把整轮对话拖死**（1.2.0 内补修）：`parameters` 是扁平属性表
+  （`{path:{…},url:{…}}`）直接交给宿主，宿主不校验、原样透传，请求体里的 `tool.parameters`
+  没有 `type`。严格渠道（`deepseek-account/deepseek-flash`）直接拒**整轮请求**：
+  `Invalid schema for function 'meme_import': schema must be a JSON Schema of 'type: "object"', got 'type': null'`
+  ——只要插件加载着，任何一句对话都失败，关掉即恢复。现已改为注册前把属性表编译成
+  对象根 schema（`{type:'object',properties}`），并加回归断言（四工具 `parameters.type === 'object'`）。
+  宽松渠道（如 qodercn）不校验 tool schema，所以这毛病一直潜伏到换模型才暴露。
 - **工具结果渲染崩溃**：`render` 写在了 spec 顶层，宿主要求在 `output` 内，
   调用时报 `output.render failed: userRender is not a function`。五处已全部移入 `output`。
 - **聊天界面图片显示不出来**：工具输出的图片用的是相对路径，GUI 不预览相对路径。

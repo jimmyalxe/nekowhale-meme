@@ -21,26 +21,23 @@ import { Tagger, listModelCatalog, mediaTypeOf, resolveTagModel } from './lib/ta
 import { judgePrompt, matchEmotion } from './lib/keywords.js'
 
 /**
- * 工具定义必须用官方 `defineTool`。它是 `@deepseek-ai/dsh-tools` 的具名导出，
- * **不是恒等函数**——负责把简写的 parameters/output 规范化成注册表要的完整 spec。
+ * 工具定义规范化：把简写的 `parameters` 属性表**编译成对象根 schema**（type:"object"）。
  *
- * 曾用普通对象冒充它（以为等价），结果五个工具在**新老会话都注册不上**（静默失败）。
- * 参考实现 dsh-nekowhale-stickers 用的就是 `import { defineTool } from '@deepseek-ai/dsh-tools'`。
+ * 为什么不用官方的 `defineTool`：插件以 `link:` 装法运行时**解析不到**那个包
+ * （`@deepseek-ai/dsh-tools` 不在插件自己的 node_modules 里；宿主只给静态 ESM
+ * import 挂解析 hook，`createRequire` 的 CJS 解析拿不到）。取不到就只能退回恒等
+ * 函数，属性表原样进了请求体 → `tool.parameters` 没有 type，严格渠道**把整轮请求
+ * 拒掉**（不是单个工具失败，是插件一加载对话全废）：
+ *   Invalid schema for function 'meme_import': schema must be a JSON Schema
+ *     of 'type: "object"', got 'type: null'
+ * 宽松渠道（qodercn 等）不校验 tool schema，所以这毛病潜伏到换 deepseek-flash 才炸。
  *
- * 为什么不静态 import：离线测试/裸 Node 解析不到这个包（它只在 DSH loader 里被供给），
- * 静态 import 会让 index.js 在测试里直接 import 失败。这里先试**同步**取（createRequire），
- * 拿不到再退恒等（恒等分支只在测试用；真实宿主一定能取到官方实现）。
+ * 所以这里自己做同一件事，不依赖能不能解析到宿主包——宿主与离线测试跑的是
+ * 同一套代码，形状永远对。本插件参数全为可选，故不产出 required；
+ * 代价是没有官方那层入参校验，但 execute 里本来就把参数按字符串/数字洗过一遍。
  */
-let _defineTool = null
-function resolveDefineTool() {
-  if (_defineTool) return _defineTool
-  try {
-    const require = createRequire(import.meta.url)
-    const mod = require('@deepseek-ai/dsh-tools')
-    if (typeof mod?.defineTool === 'function') { _defineTool = mod.defineTool; return _defineTool }
-  } catch { /* 测试环境解析不到，走恒等 */ }
-  _defineTool = (spec) => spec
-  return _defineTool
+function DT(spec) {
+  return { ...spec, parameters: { type: 'object', properties: spec.parameters ?? {} } }
 }
 
 export const name = 'nekowhale-meme'
@@ -958,10 +955,10 @@ export function apply(ctx, config) {
 
   // ---------------------------------------------------------------- 工具（模型侧）
   ctx.inject(['tools'], (tctx) => {
-    registerTools(tctx, resolveDefineTool())
+    registerTools(tctx, DT)
   })
 
-  /** 五个工具的实际注册。DT = 官方 defineTool（测试环境下退化为恒等）。 */
+  /** 四个工具的实际注册。DT = 上方那个把属性表编译成对象根 schema 的包装。 */
   function registerTools(tctx, DT) {
     tctx.effect(() => tctx.tools.register(DT({
       name: 'meme_import',

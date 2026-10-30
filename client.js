@@ -812,12 +812,13 @@ window.__ModuleLoader__.load({ id: 'nekowhale-meme', factory: (require) => {
     const [busy, setBusy] = useState(false)
     const pick = () => ref.current?.click()
     const onFiles = async (e) => {
-      const files = Array.from(e.target.files ?? [])
-      if (files.length === 0) return
+      const input = e.target
+      const picked = Array.from(input.files ?? [])
+      if (picked.length === 0) return
       setBusy(true)
       try {
         const payload = []
-        for (const f of files) {
+        for (const f of picked) {
           const buf = await f.arrayBuffer()
           let bin = ''
           const bytes = new Uint8Array(buf)
@@ -825,6 +826,8 @@ window.__ModuleLoader__.load({ id: 'nekowhale-meme', factory: (require) => {
           for (let i = 0; i < bytes.length; i += CH) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + CH))
           payload.push({ name: f.name, dataBase64: btoa(bin) })
         }
+        // 注意：这里**不提前**清 input——统一在 finally（整个上传流程结束）后释放，
+        // 语义 = 「上传结束后浏览器才停止占用原文件」，避免大批量时中途状态错乱。
         const r = await apiPost('/import', { files: payload })
         const okN = (r.results ?? []).filter((x) => x.id).length
         const skips = (r.results ?? []).filter((x) => x.skipped)
@@ -834,7 +837,10 @@ window.__ModuleLoader__.load({ id: 'nekowhale-meme', factory: (require) => {
         toast(`上传失败：${err.message}`)
       } finally {
         setBusy(false)
-        if (ref.current) ref.current.value = ''
+        // 上传结束（含失败）→ 清空 input 与 File 引用，浏览器此刻起不再占用原文件，
+        // 用户即可删除/移动原始图片。
+        input.value = ''
+        picked.length = 0
       }
     }
     return h('span', { style: S.row },
