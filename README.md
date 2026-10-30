@@ -4,9 +4,9 @@
 
 把散落的表情图收进一个**可检索、可分组、可被 AI 调用**的本地库。
 
-**完全不依赖任何其他插件。** 初始表情包直接连公开站点 [kiriyuki.com](https://kiriyuki.com)
+初始表情包直接连公开站点 [kiriyuki.com](https://kiriyuki.com)
 （清单 `/api/manifest`、图 `/media/gif`、作者标注 `/meme/kit/nekowhale.json`），
-不需要装 [dsh-nekowhale-stickers](https://github.com/Loping151/dsh-nekowhale-stickers)`，也不需要它提供任何服务。
+基于 [dsh-nekowhale-stickers](https://github.com/Loping151/dsh-nekowhale-stickers)二次开发。
 
 ---
 
@@ -99,7 +99,7 @@ dsh plugin --profile desktop add "link:<开发目录绝对路径>"
 
 ## 数据目录
 
-默认 **`$DSH_HOME/nekowhale-meme`**（与其他 DSH 插件的约定一致，不会写死某个盘符）。
+默认 **`$DSH_HOME/nekowhale-meme`**。
 设置页里可以改成任意位置（包括别的盘）。
 
 换目录时会**把图库与索引整体搬迁**到新目录（剪切，旧目录随即清空），不占双份磁盘；
@@ -229,7 +229,7 @@ POST /nekowhale-meme/health/clear          需 confirm:true，整份清空
 
 表情包作者：B站 [可以叫我云大人 / 雾雪](https://space.bilibili.com/103739) · [kiriyuki.com](https://kiriyuki.com) 制作 · 欢迎约原稿同款表情包！
 
-本插件**不包含任何表情素材**，图都在使用者点「下载初始表情包」时从 kiriyuki.com 按需下载，
+本插件**不包含任何表情素材**，初始图都在使用者点「下载初始表情包」时从 kiriyuki.com 按需下载，
 不作为本仓库的一部分分发。
 
 | 数据 | 来源 | 许可 |
