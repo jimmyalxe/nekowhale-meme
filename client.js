@@ -130,6 +130,19 @@ window.__ModuleLoader__.load({ id: 'nekowhale-meme', factory: (require) => {
       display: 'inline-block', padding: '1px 7px', borderRadius: 999, fontSize: 11,
       border: `1px solid ${C.border}`, background: C.surface, marginRight: 4,
     },
+    // 情绪筛选按钮（二级筛选条用）：普通 / 选中 / 该情绪下没图（置灰）
+    chipBtn: {
+      padding: '3px 10px', borderRadius: 999, fontSize: 12, font: 'inherit', cursor: 'pointer',
+      border: `1px solid ${C.border}`, background: C.surface, color: C.fg,
+    },
+    chipOn: {
+      padding: '3px 10px', borderRadius: 999, fontSize: 12, font: 'inherit', cursor: 'pointer',
+      border: `1px solid ${C.accent}`, background: C.accentSoft, color: C.fg, fontWeight: 600,
+    },
+    chipOff: {
+      padding: '3px 10px', borderRadius: 999, fontSize: 12, font: 'inherit', cursor: 'not-allowed',
+      border: `1px solid ${C.border}`, background: 'transparent', color: C.mute, opacity: 0.55,
+    },
     dropdown: { position: 'relative', minWidth: 260, flex: 1, maxWidth: 420 },
     ddPanel: {
       position: 'absolute', zIndex: 40, left: 0, right: 0, top: 'calc(100% + 4px)', borderRadius: 10,
@@ -503,10 +516,14 @@ window.__ModuleLoader__.load({ id: 'nekowhale-meme', factory: (require) => {
     const [groupPick, setGroupPick] = useState('')
     const [showGroups, setShowGroups] = useState(false)
     const [newGroup, setNewGroup] = useState('')
+    const [emotionPick, setEmotionPick] = useState('')
+    const [zoom, setZoom] = useState(null)   // 点击缩略图放大的条目（Lightbox）
     const tab = st.tab
     const items = st.items ?? []
+    // 二级筛选后的"看得见的图"：全选/计数都跟着它走，操作只作用于勾选的
+    const shown = emotionPick ? items.filter((it) => it.emotion === emotionPick) : items
 
-    useEffect(() => { setIds([]); setEditing(null) }, [tab, st.group])
+    useEffect(() => { setIds([]); setEditing(null); setEmotionPick('') }, [tab, st.group])
 
     // 模型清单（首次进入拉一次）
     useEffect(() => {
@@ -600,7 +617,7 @@ window.__ModuleLoader__.load({ id: 'nekowhale-meme', factory: (require) => {
         h('div', { style: S.card },
           items.length === 0 ? h('div', { style: S.empty }, '队列是空的。到设置页导入，或用「上传」把图收进来。') : null,
           h('div', { style: S.list }, items.map((it) => h(QueueItem, {
-            key: it.id, it, checked: selSet.has(it.id), onToggle: () => toggleId(it.id),
+            key: it.id, it, checked: selSet.has(it.id), onToggle: () => toggleId(it.id), onZoom: () => setZoom(it),
           }))),
           h('div', { style: { ...S.row, marginTop: 10 } }, h(UploadButton, { toast, reload }))),
       ) : null,
@@ -608,8 +625,9 @@ window.__ModuleLoader__.load({ id: 'nekowhale-meme', factory: (require) => {
       // ---- 已标识·待确认
       tab === 'tagged' ? h('div', null,
         h('div', { style: S.card },
+          h(EmotionFilter, { emotions: st.emotions ?? [], items, value: emotionPick, onChange: setEmotionPick }),
           h('div', { style: { ...S.row, marginBottom: 8 } },
-            h(Btn, { onClick: () => setIds(ids.length === items.length ? [] : items.map((i) => i.id)) }, ids.length === items.length && items.length > 0 ? '取消全选' : '全选'),
+            h(Btn, { onClick: () => setIds(ids.length === shown.length ? [] : shown.map((i) => i.id)) }, ids.length === shown.length && shown.length > 0 ? '取消全选' : '全选'),
             h('select', { style: { ...S.select, minWidth: 130, maxWidth: 160 }, value: groupPick, onChange: (e) => setGroupPick(e.target.value) },
               h('option', { value: '' }, '入库到…（默认收藏）'),
               (st.groups ?? []).filter((g) => !g.readonly && !g.virtual).map((g) => h('option', { key: g.id, value: g.id }, g.name))),
@@ -617,7 +635,7 @@ window.__ModuleLoader__.load({ id: 'nekowhale-meme', factory: (require) => {
               kind: 'primary', disabled: ids.length === 0 || busy,
               onClick: () => act(async () => {
                 const r = await apiPost('/confirm', { ids, group: groupPick || undefined })
-                toast(`入库 ${r.done.length} 张${r.errors.length ? `，${r.errors.length} 张失败` : ''}`)
+                toast(`入库 ${r.done.length} 张${r.errors.length ? `，${r.errors.length} 张失败（${r.errors[0]?.reason ?? '未知原因'}）` : ''}`)
               }),
             }, '确认入库'),
             h(Btn, {
@@ -634,10 +652,10 @@ window.__ModuleLoader__.load({ id: 'nekowhale-meme', factory: (require) => {
               onClick: () => { if (!window.confirm(`删除选中的 ${ids.length} 张？`)) return; act(() => apiPost('/delete', { ids, confirm: true, purgeFiles: true })) },
             }, '删除勾选'),
             h('span', { style: { marginLeft: 'auto', fontSize: 12, color: C.mute } }, `已选 ${ids.length} 张`)),
-          items.length === 0 ? h('div', { style: S.empty }, '没有待确认的图。') : null,
-          h('div', { style: S.list }, items.map((it) => h(TaggedItem, {
+          shown.length === 0 ? h('div', { style: S.empty }, items.length === 0 ? '没有待确认的图。' : `这个情绪下没有待确认的图（共 ${items.length} 张，切「全部」看）。`) : null,
+          h('div', { style: S.list }, shown.map((it) => h(TaggedItem, {
             key: it.id, it, checked: selSet.has(it.id), onToggle: () => toggleId(it.id),
-            onEdit: () => setEditing(it),
+            onEdit: () => setEditing(it), onZoom: () => setZoom(it),
           })))),
       ) : null,
 
@@ -679,8 +697,9 @@ window.__ModuleLoader__.load({ id: 'nekowhale-meme', factory: (require) => {
                 kind: 'primary', disabled: !newGroup.trim(),
                 onClick: () => act(async () => { await apiPost('/group', { action: 'create', name: newGroup.trim() }); setNewGroup('') }),
               }, '+ 新建组'))) : null,
+          h(EmotionFilter, { emotions: st.emotions ?? [], items, value: emotionPick, onChange: setEmotionPick }),
           h('div', { style: { ...S.row, marginBottom: 8 } },
-            h(Btn, { onClick: () => setIds(ids.length === items.length ? [] : items.map((i) => i.id)) }, ids.length === items.length && items.length > 0 ? '取消全选' : '全选'),
+            h(Btn, { onClick: () => setIds(ids.length === shown.length ? [] : shown.map((i) => i.id)) }, ids.length === shown.length && shown.length > 0 ? '取消全选' : '全选'),
             h(Btn, {
               disabled: ids.length === 0 || busy,
               onClick: () => act(async () => {
@@ -713,15 +732,17 @@ window.__ModuleLoader__.load({ id: 'nekowhale-meme', factory: (require) => {
               onClick: () => { if (!window.confirm(`删除选中的 ${ids.length} 张？`)) return; act(() => apiPost('/delete', { ids, confirm: true, purgeFiles: true })) },
             }, '删除勾选'),
             h('span', { style: { marginLeft: 'auto', fontSize: 12, color: C.mute } }, `已选 ${ids.length} 张`)),
-          items.length === 0 ? h('div', { style: S.empty }, '这一栏没有图。') : null,
-          h('div', { style: S.list }, items.map((it) => h(LibraryItem, {
-            key: it.id, it, checked: selSet.has(it.id), onToggle: () => toggleId(it.id), onEdit: () => setEditing(it),
+          shown.length === 0 ? h('div', { style: S.empty }, items.length === 0 ? '这一栏没有图。' : `这个情绪下没有图（共 ${items.length} 张，切「全部」看）。`) : null,
+          h('div', { style: S.list }, shown.map((it) => h(LibraryItem, {
+            key: it.id, it, checked: selSet.has(it.id), onToggle: () => toggleId(it.id), onEdit: () => setEditing(it), onZoom: () => setZoom(it),
           })))),
       ) : null,
 
+      // ---- 点击缩略图的放大预览（浮在所有东西上面）
+      zoom ? h(Lightbox, { item: zoom, onClose: () => setZoom(null) }) : null,
+
       // ---- 编辑面板
-      editing ? h(EditPanel, {
-        item: editing, groups: st.groups ?? [], busy,
+      editing ? h(EditPanel, {        item: editing, groups: st.groups ?? [], busy,
         onClose: () => setEditing(null),
         onSave: (patch) => act(async () => {
           await apiPost('/update', { id: editing.id, patch })
@@ -741,12 +762,34 @@ window.__ModuleLoader__.load({ id: 'nekowhale-meme', factory: (require) => {
     }
   }
 
+  /**
+   * 二级筛选：按情绪过滤当前栏目的图。
+   * 「全部」+ 25 个情绪按钮；该情绪下没图的按钮置灰不可点（用户偏好：无意义选项置灰）。
+   * 纯前端过滤——数据本来就按 tab/组整页拉回来了，不再多打一次请求。
+   */
+  function EmotionFilter({ emotions, items, value, onChange }) {
+    const countOf = (e) => items.filter((it) => it.emotion === e).length
+    return h('div', { style: { ...S.row, gap: 6, marginBottom: 10 } },
+      h('span', { style: { fontSize: 12, color: C.mute, flex: 'none' } }, '按情绪'),
+      h('button', {
+        type: 'button', style: value === '' ? S.chipOn : S.chipBtn, onClick: () => onChange(''),
+      }, `全部（${items.length}）`),
+      emotions.map((e) => {
+        const n = countOf(e)
+        return h('button', {
+          key: e, type: 'button', disabled: n === 0,
+          style: value === e ? S.chipOn : (n === 0 ? S.chipOff : S.chipBtn),
+          onClick: () => onChange(value === e ? '' : e),
+        }, n === 0 ? e : `${e} ${n}`)
+      }))
+  }
+
   // ---------------------------------------------------------------- 列表项
-  function QueueItem({ it, checked, onToggle }) {
+  function QueueItem({ it, checked, onToggle, onZoom }) {
     const status = it.failReason ? `识别失败：${it.failReason}` : '待识别'
     return h('div', { style: S.item },
       h('input', { type: 'checkbox', checked, onChange: onToggle }),
-      h('img', { src: it.url, alt: it.displayName, style: S.thumb, loading: 'lazy' }),
+      h('img', { src: it.url, alt: it.displayName, style: { ...S.thumb, cursor: 'zoom-in' }, loading: 'lazy', title: '点击放大', onClick: onZoom }),
       h('div', { style: S.itemMain },
         h('div', { style: S.itemName }, it.displayName || it.originalName),
         h('div', { style: S.itemMeta },
@@ -754,10 +797,10 @@ window.__ModuleLoader__.load({ id: 'nekowhale-meme', factory: (require) => {
       h('span', { style: { fontSize: 12, color: it.failReason ? C.danger : C.warn, textAlign: 'right', maxWidth: 220 } }, status))
   }
 
-  function TaggedItem({ it, checked, onToggle, onEdit }) {
+  function TaggedItem({ it, checked, onToggle, onEdit, onZoom }) {
     return h('div', { style: S.item },
       h('input', { type: 'checkbox', checked, onChange: onToggle }),
-      h('img', { src: it.url, alt: it.displayName, style: S.thumb, loading: 'lazy' }),
+      h('img', { src: it.url, alt: it.displayName, style: { ...S.thumb, cursor: 'zoom-in' }, loading: 'lazy', title: '点击放大', onClick: onZoom }),
       h('div', { style: S.itemMain },
         h('div', { style: S.itemName }, it.displayName || it.originalName),
         h('div', { style: S.itemMeta }, `${it.emotion || '未定'}｜${(it.tags ?? []).join('、') || '无标签'}`),
@@ -765,16 +808,44 @@ window.__ModuleLoader__.load({ id: 'nekowhale-meme', factory: (require) => {
       h(Btn, { onClick: onEdit }, '编辑'))
   }
 
-  function LibraryItem({ it, checked, onToggle, onEdit }) {
+  function LibraryItem({ it, checked, onToggle, onEdit, onZoom }) {
     return h('div', { style: S.item },
       h('input', { type: 'checkbox', checked, onChange: onToggle }),
-      h('img', { src: it.url, alt: it.displayName, style: S.thumb, loading: 'lazy' }),
+      h('img', { src: it.url, alt: it.displayName, style: { ...S.thumb, cursor: 'zoom-in' }, loading: 'lazy', title: '点击放大', onClick: onZoom }),
       h('div', { style: S.itemMain },
         h('div', { style: S.itemName }, it.displayName || it.originalName),
         h('div', { style: S.itemMeta },
           `${it.originalName}｜${fmtDate(it.addedAt)}｜${it.emotion || '—'}`),
         (it.tags ?? []).length > 0 ? h('div', null, it.tags.map((t) => h('span', { key: t, style: S.chip }, t))) : null),
       it.readonly ? h('span', { style: { fontSize: 11, color: C.mute } }, '只读') : h(Btn, { onClick: onEdit }, '编辑'))
+  }
+
+  // ---------------------------------------------------------------- 双击放大预览
+  /**
+   * 灯箱：页面居中显示原图（点缩略图触发；宿主 GUI 不代理 dblclick，故用单击）。**只给 maxWidth/maxHeight 不给 min-width**——
+   * img 不会放大超过原图自然尺寸，天然满足「不超过表情包原图大小」。
+   * 关闭：右上角 ✕，或点图片外任意空白。
+   */
+  function Lightbox({ item, onClose }) {
+    return h('div', {
+      style: {
+        position: 'fixed', inset: 0, zIndex: 10001, background: 'rgba(0,0,0,.55)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'zoom-out',
+      },
+      onClick: onClose,
+    },
+      h('div', { style: { position: 'relative', cursor: 'default' }, onClick: (e) => e.stopPropagation() },
+        h('img', {
+          src: item.url, alt: item.displayName || item.originalName,
+          style: { maxWidth: '90vw', maxHeight: '84vh', display: 'block', borderRadius: 10, boxShadow: '0 18px 44px rgba(0,0,0,.5)' },
+        }),
+        h('button', {
+          type: 'button', title: '关闭', onClick: onClose,
+          style: {
+            position: 'absolute', top: 8, right: 8, width: 28, height: 28, borderRadius: 999,
+            border: 'none', background: 'rgba(0,0,0,.55)', color: '#fff', cursor: 'pointer', fontSize: 15, lineHeight: '28px',
+          },
+        }, '✕')))
   }
 
   // ---------------------------------------------------------------- 编辑面板

@@ -4,9 +4,9 @@
 
 把散落的表情图收进一个**可检索、可分组、可被 AI 调用**的本地库。
 
-初始表情包直接连公开站点 [kiriyuki.com](https://kiriyuki.com)
+**完全不依赖任何其他插件。** 初始表情包直接连公开站点 [kiriyuki.com](https://kiriyuki.com)
 （清单 `/api/manifest`、图 `/media/gif`、作者标注 `/meme/kit/nekowhale.json`），
-基于 [dsh-nekowhale-stickers](https://github.com/Loping151/dsh-nekowhale-stickers)二次开发。
+不需要装 `dsh-nekowhale-stickers`，也不需要它提供任何服务。
 
 ---
 
@@ -28,11 +28,13 @@
 | Tab | 能做什么 |
 |---|---|
 | **待识别** | 全选 / 识别勾选 / 删除勾选；识别模型下拉（红字「识别需要消耗 token」）；识别进度条 + 中止；失败项红字显示原因 |
-| **已标识·待确认** | 确认入库（可选目标组）/ 重新识别 / 删除勾选；每项「情绪｜描述｜关键词」+ 编辑面板 |
-| **已入库·可用** | 分组选择器 + `管理分组`（新建/重命名/删除都在这里）；移出到待确认 / 改分组 / 删除勾选 |
+| **已标识·待确认** | **按情绪二级筛选**（「全部」+ 25 情绪按钮，带张数，该情绪没图的置灰不可点）；确认入库（可选目标组）/ 重新识别 / 删除勾选；每项「情绪｜描述｜关键词」+ 编辑面板 |
+| **已入库·可用** | 分组选择器 + `管理分组`（新建/重命名/删除都在这里）；**按情绪二级筛选**（同上）；移出到待确认 / 改分组 / 删除勾选 |
 
 > **三个状态的图都能编辑**（显示名 / 情绪 / 标签 / 适用场景 / 描述）：待识别可先填标注，
 > 待确认正好用来核对模型输出，库内日常修正。**唯一例外是只读组**（从站点下载的角色包），组里的图不可编辑。
+
+> **点击任意缩略图可放大预览**：页面居中显示，不超过原图尺寸；右上角 ✕ 或点图外空白关闭。
 
 ### 设置页
 
@@ -81,6 +83,9 @@ dsh plugin --profile desktop remove nekowhale-meme
 dsh plugin --profile desktop add github:jimmyalxe/nekowhale-meme
 ```
 
+> 如果机器无法直连 GitHub，先装 [`@copylee/dsh-proxy`](https://www.npmjs.com/package/@copylee/dsh-proxy)
+> 并在设置里设为「跟随系统代理」——DSH 基于 Node，本身不读 Windows 的系统代理设置。
+
 ### 本地开发
 
 开发目录用 `link:` 装，改完代码热重载即可，不用碰 GitHub：
@@ -99,7 +104,7 @@ dsh plugin --profile desktop add "link:<开发目录绝对路径>"
 
 ## 数据目录
 
-默认 **`$DSH_HOME/nekowhale-meme`**。
+默认 **`$DSH_HOME/nekowhale-meme`**（与其他 DSH 插件的约定一致，不会写死某个盘符）。
 设置页里可以改成任意位置（包括别的盘）。
 
 换目录时会**把图库与索引整体搬迁**到新目录（剪切，旧目录随即清空），不占双份磁盘；
@@ -229,7 +234,7 @@ POST /nekowhale-meme/health/clear          需 confirm:true，整份清空
 
 表情包作者：B站 [可以叫我云大人 / 雾雪](https://space.bilibili.com/103739) · [kiriyuki.com](https://kiriyuki.com) 制作 · 欢迎约原稿同款表情包！
 
-本插件**不包含任何表情素材**，初始图都在使用者点「下载初始表情包」时从 kiriyuki.com 按需下载，
+本插件**不包含任何表情素材**，图都在使用者点「下载初始表情包」时从 kiriyuki.com 按需下载，
 不作为本仓库的一部分分发。
 
 | 数据 | 来源 | 许可 |
