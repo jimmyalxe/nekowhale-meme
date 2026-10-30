@@ -1,8 +1,9 @@
 // nekowhale-meme —— 大肥鱼表情库（宿主半）
 //
-// 定位：完全自包含的 DSH 表情库插件，**不依赖任何其他插件**。
+// 定位：DSH 表情库插件，基于 dsh-nekowhale-stickers
+// （https://github.com/Loping151/dsh-nekowhale-stickers）二创，新增「导入表情包」功能。
 // 「下载初始表情包」直接连公开站点 kiriyuki.com（清单 /api/manifest、图 /media/gif），
-// 不需要装 dsh-nekowhale-stickers，也不需要它提供任何服务。
+// 走的是自己的 HTTP 客户端，不需要 dsh-nekowhale-stickers 在场或提供任何服务。
 //
 // 半边划分：
 //   宿主半（本文件）：数据层、识别、HTTP 路由、模型工具、斗图触发
@@ -1344,7 +1345,7 @@ export function apply(ctx, config) {
             return
           }
 
-          // ---- 导入：直接从 kiriyuki.com 下载（不依赖任何其他插件）
+          // ---- 导入：直接从 kiriyuki.com 下载（自带 HTTP 客户端，不用另装插件）
           if (rest === '/import-nekowhale' && req.method === 'POST') {
             const body = await readJsonBody(req)
             const packs = Array.isArray(body?.packs) && body.packs.length > 0

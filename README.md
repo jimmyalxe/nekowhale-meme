@@ -1,12 +1,13 @@
 # nekowhale-meme
 
-> 大肥鱼表情库 —— 自包含的 DSH 表情库插件
+> 大肥鱼表情库 —— DSH 表情库插件
 
 把散落的表情图收进一个**可检索、可分组、可被 AI 调用**的本地库。
 
-**完全不依赖任何其他插件。** 初始表情包直接连公开站点 [kiriyuki.com](https://kiriyuki.com)
-（清单 `/api/manifest`、图 `/media/gif`、作者标注 `/meme/kit/nekowhale.json`），
-不需要装 `dsh-nekowhale-stickers`，也不需要它提供任何服务。
+初始表情包直接连公开站点 [kiriyuki.com](https://kiriyuki.com)
+（清单 `/api/manifest`、图 `/media/gif`、作者标注 `/meme/kit/nekowhale.json`）。
+本插件基于 [dsh-nekowhale-stickers](https://github.com/Loping151/dsh-nekowhale-stickers)
+（关联仓库 Loping151/dsh-nekowhale-stickers）二创，增加导入表情包功能。
 
 ---
 
@@ -82,9 +83,6 @@ dsh plugin --profile desktop add github:jimmyalxe/nekowhale-meme
 dsh plugin --profile desktop remove nekowhale-meme
 dsh plugin --profile desktop add github:jimmyalxe/nekowhale-meme
 ```
-
-> 如果机器无法直连 GitHub，先装 [`@copylee/dsh-proxy`](https://www.npmjs.com/package/@copylee/dsh-proxy)
-> 并在设置里设为「跟随系统代理」——DSH 基于 Node，本身不读 Windows 的系统代理设置。
 
 ### 本地开发
 
@@ -245,7 +243,7 @@ POST /nekowhale-meme/health/clear          需 confirm:true，整份清空
 
 参考实现：[dsh-nekowhale-stickers](https://github.com/Loping151/dsh-nekowhale-stickers)——
 本插件在功能设计上参考了它（队列/识别/分组的思路），并沿用它的 25 情绪词表与标注文件格式，
-但**代码为本鱼（骄傲）独立编写，不复制其源码**。
+但**代码为本鱼（骄傲（可以放表情包））编写，代码的事情全凭天意**。
 
 ## 📄 许可
 

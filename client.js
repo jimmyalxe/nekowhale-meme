@@ -1079,7 +1079,7 @@ window.__ModuleLoader__.load({ id: 'nekowhale-meme', factory: (require) => {
               ? (allPacksDone ? '所有包都已下载完成' : '先选要下载的包')
               : `下载初始表情包（${pickedCount} 张 · ${fmtMB(pickedBytes)}）`),
           h('span', { style: { fontSize: 11, color: C.mute } },
-            '从 kiriyuki.com 直连下载，不依赖任何其他插件')),
+            '从 kiriyuki.com 直连下载，不用另装插件')),
         // 包选择器
         h('div', { style: { ...S.field, marginTop: 8 } },
           h('span', { style: S.label }, '选择要下载的包'),
