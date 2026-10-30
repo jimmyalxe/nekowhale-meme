@@ -221,10 +221,9 @@ POST /nekowhale-meme/health/clear          需 confirm:true，整份清空
 <table>
 <tr>
 <td width="140" align="center"><img src="https://kiriyuki.com/meme/kit/nekowhale/id-photo-blue.png" width="120" alt="大肥鱼"></td>
-<td><b>大肥鱼形象</b>基于 <a href="https://space.bilibili.com/4168597">ZipZipPipe</a> 与 <a href="https://space.bilibili.com/4456176">上善无形</a> 提供的形象；<b>GPT娘形象</b>基于 <a href="https://space.bilibili.com/4168597">ZipZipPipe</a>。<br>
+<td><b>大肥鱼形象</b>基于 <a href="https://space.bilibili.com/4168597">ZipZipPipe</a> 与 <a href="https://space.bilibili.com/4456176">上善无形</a> 提供的形象。<br>
 <b>大肥鱼</b>：拟人化的 DeepSeek 鲸鱼娘。深蓝长发、呆毛、女仆头饰。<br>
-<b>GPT娘</b>：拟人化的 ChatGPT，双人套组里的白色角色，白发龙娘，有龙角和 OpenAI 发饰。<br>
-<sub>双人表情的 <code>dir</code> 字段记录方向，例如 <code>大肥鱼→GPT娘</code>。<b>本插件不支持双人包</b>，因此不涉及方向字段。</sub></td>
+本插件的初始表情包只包含<b>大肥鱼</b>单人形象，<b>不支持双人包</b>。</td>
 </tr>
 </table>
 
