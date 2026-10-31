@@ -1100,8 +1100,8 @@ export function apply(ctx, config) {
     })), 'nekowhale-meme: meme_send')
 
     tctx.effect(() => tctx.tools.register(DT({
-      name: 'meme_list',
-      description: '列队列或库存：待识别 / 已标识待确认 / 已入库（可限分组），用于查看现状而不是检索。',
+      name: 'meme_browse',
+      description: '浏览库存：待识别 / 已标识待确认 / 已入库（可限分组），用于查看现状而不是检索。',
       parameters: {
         status: { type: 'string', enum: ['pending', 'tagged', 'library'], description: '看哪一栏，默认 library' },
         group: { type: 'string', description: '限定分组 id' },
@@ -1120,7 +1120,7 @@ export function apply(ctx, config) {
         })
         return { ok: true, text: `共 ${all.length} 条${all.length > limit ? `，列前 ${limit} 条` : ''}：\n${rows.join('\n')}` }
       },
-    })), 'nekowhale-meme: meme_list')
+    })), 'nekowhale-meme: meme_browse')
   }
 
   // ---------------------------------------------------------------- HTTP 路由

@@ -184,7 +184,12 @@ pending ──识别成功──▶ tagged ──确认入库──▶ library
 | `meme_import` | 收进待识别队列。可给 `path` / `url`；**都留空 = 取本会话最近一张聊天附件** |
 | `meme_search` | 搜已入库图，返回标签与图片地址（绝对 URL，聊天界面可直接显示） |
 | `meme_send` | 发图（含失效兜底：坏了就换下一张，最多 3 张） |
-| `meme_list` | 列队列或库 |
+| `meme_browse` | 浏览队列或库存（不检索，只看现状） |
+
+> **`meme_browse` 原名 `meme_list`。** 原因：它与 `yyh-001/dsh-meme` 的工具
+> `meme_list` 完全同名，两者同装会互相覆盖，所以为提交 dshmarket 收录做的自检里改掉了。
+> 参数（`status` / `group` / `limit`）和行为完全没变——如果你在自定义提示词、skill 或
+> `AGENTS.md` 里写过 `meme_list`，把那一处字符串换掉即可。
 
 > **识别不提供给模型（没有 `meme_tag`）。** 图片只能进「待识别」区，
 > 必须由你**在插件页当面点「识别勾选」**才会调用模型打标签——识别消耗 token，

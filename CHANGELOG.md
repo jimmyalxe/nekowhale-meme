@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.3.0 — 2026-10-31
+
+**唯一的改动是工具重命名**，为提交 dshmarket 收录做了自检、发现工具名与已有插件冲突。
+无功能新增、无行为变更。
+
+- **`meme_list` → `meme_browse`**：提交 [awesome-dsh-plugin](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin)
+  收录前做自检，发现本工具与已有的 `yyh-001/dsh-meme` **完全同名**（它也有 `meme_list`）。
+  两个插件同装时同名工具会互相覆盖，属于实打实的兼容缺口，因此重命名。
+- 选 `browse` 而不是 `group`/`queue` 的理由：它**同时覆盖三态**（待识别 / 已标识待确认 / 已入库，
+  `status` 默认 `library`），叫 `queue` 会丢掉三分之二的语义；而本项目里 `group` 已被
+  `POST /group` 占用且是**会写数据**的操作（create/rename/delete/move，delete 还会删文件），
+  用一个只读的清点工具去叫 `group` 会名不副实。`browse` 也与 dsh-nekowhale-stickers 的
+  `sticker_manage action=browse` 用词一致。
+- 参数与行为**完全未变**（`status` / `group` / `limit`），仅名称与描述措辞更新。
+- **升级提醒**：若你在自定义提示词、skill 或 `AGENTS.md` 里引用过 `meme_list`，需改成 `meme_browse`。
+- 未改动：其余三个工具（`meme_import` / `meme_search` / `meme_send`）——它们与
+  dsh-nekowhale-stickers（`sticker_*` 前缀）和 dsh-meme（`send_meme` 等）均不冲突。
+
 ## 1.2.0 — 2026-10-29
 
 首个对外发布版本。此前开发过程中的 1.0.1 / 1.0.2 / 1.1.x 等中间版本均未发布，
