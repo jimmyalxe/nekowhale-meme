@@ -276,7 +276,7 @@ POST /nekowhale-meme/health/clear          需 confirm:true，整份清空
 表情包标注数据（见 [LICENSE-ASSETS](./LICENSE-ASSETS)）采用 **CC BY-NC 4.0**：
 允许对资源进行二次分发，但**必须保留原作者链接和网址**，且禁止付费提供或用于其他商业用途。
 
-表情包基础形象和模板由 **可以叫我云大人 / 雾雪** 制作。
+表情包基础形象和模板由 [可以叫我云大人 / 雾雪](https://space.bilibili.com/103739) · [kiriyuki.com](https://kiriyuki.com) 制作。
 
 ## 已知限制
 
