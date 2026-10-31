@@ -78,6 +78,13 @@ dsh plugin --profile desktop add github:jimmyalxe/nekowhale-meme
 ```
 
 装完**刷新插件页**即可（工具/接口在插件装载后即生效）。
+
+也可以从 npm 装（同一个包，版本号与 `package.json` 一致）：
+
+```bash
+dsh plugin --profile desktop add nekowhale-meme
+```
+
 **换版本必须先 remove 再 add，不能覆盖安装**：
 
 ```bash

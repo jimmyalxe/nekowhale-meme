@@ -35,7 +35,10 @@
     "大肥鱼"
   ],
   "license": "Apache-2.0 AND CC-BY-NC-4.0",
-  "author": "jimmyalxe",
+  "author": {
+    "name": "jimmyalxe",
+    "url": "https://github.com/jimmyalxe"
+  },
   "homepage": "https://github.com/jimmyalxe/nekowhale-meme#readme",
   "repository": {
     "type": "git",
@@ -56,8 +59,12 @@
       ]
     }
   },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
   "peerDependencies": {
-    "@deepseek-ai/schemastery": ">=3.18.2"
+    "@deepseek-ai/schemastery": ">=3.18.2-0 <4.0.0-0"
   },
   "peerDependenciesMeta": {
     "@deepseek-ai/schemastery": {
