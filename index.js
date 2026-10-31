@@ -19,7 +19,7 @@ import { createRequire } from 'node:module'
 import { basename, dirname, extname, isAbsolute, join, resolve } from 'node:path'
 import { EMOTIONS, STATE_LIBRARY, STATE_PENDING, STATE_TAGGED, Store, defaultDataDir, groupDirName, loadConfig, saveConfig } from './lib/store.js'
 import { Tagger, listModelCatalog, mediaTypeOf, resolveTagModel } from './lib/tagger.js'
-import { judgePrompt, matchEmotion } from './lib/keywords.js'
+import { matchEmotion } from './lib/keywords.js'
 
 /**
  * 工具定义规范化：把简写的 `parameters` 属性表**编译成对象根 schema**（type:"object"）。
@@ -613,30 +613,6 @@ async function readJsonBody(req, limit = 16 * 1024 * 1024) {
   }
 }
 
-/** 一次纯文本生成：给 system + 一句 user，返回拼好的文本。 */
-async function onceText(llm, sel, system, userText, timeoutMs) {
-  let msg
-  try {
-    const mod = await import('@deepseek-ai/dsh-llm')
-    msg = mod.createUserMessage({ content: [{ type: 'text', text: userText }], source: { kind: 'user' } })
-  } catch {
-    msg = { id: `m-${Date.now()}`, role: 'user', content: [{ type: 'text', text: userText }], source: { kind: 'user' } }
-  }
-  const parts = []
-  for await (const chunk of llm.stream({
-    provider: sel.provider,
-    model: sel.model,
-    sessionId: 'nekowhale-meme-judge',
-    messages: [msg],
-    system,
-    temperature: 0,
-    signal: AbortSignal.timeout(timeoutMs),
-  })) {
-    if (chunk?.type === 'text-delta' && typeof chunk.text === 'string') parts.push(chunk.text)
-  }
-  return parts.join('')
-}
-
 /** 从用户消息的 content 块里抽文本。 */
 function textOfContent(content) {
   if (typeof content === 'string') return content
@@ -794,13 +770,15 @@ export function apply(ctx, config) {
     }
   }
 
-  // ---------------------------------------------------------------- 斗图（回合结束触发）
+  // ---------------------------------------------------------------- 会话状态 / 斗图提示注入所需的槽
   const sessions = new Map()
+  /** 调试用：记录最近若干条 session/event 的骨架，便于定位"事件没到"还是"守卫挡住"。 */
+  const eventTrace = []
 
   function sessionSlot(sid) {
     let s = sessions.get(sid)
     if (!s) {
-      s = { lastUserText: '', turn: 0, sentTurns: [], popup: null, lastImage: null }
+      s = { lastUserText: '', turn: 0, sentTurns: [], lastImage: null }
       sessions.set(sid, s)
     }
     return s
@@ -853,76 +831,23 @@ export function apply(ctx, config) {
     return slot.sentTurns.length
   }
 
-  let latestPopup = null
-
-  function firePopup(item, text) {
-    latestPopup = {
-      at: Date.now(),
-      id: item.id,
-      url: `${ROUTE}/image/${encodeURIComponent(item.id)}`,
-      name: item.displayName,
-      emotion: item.emotion ?? '',
-    }
-    return latestPopup
-  }
-
-  async function judgeByModel(text) {
-    const llm = ctx.get('llm')
-    if (!llm?.stream) return undefined
-    const sel = cfg.tagModel ?? (await resolveTagModel(ctx, llm, undefined))
-    if (!sel) return undefined
-    let out = ''
-    try {
-      out = await onceText(llm, sel, judgePrompt(), text, 30000)
-    } catch (e) {
-      warn(`斗图模型判断失败：${e?.message ?? e}`)
-      return undefined
-    }
-    const first = out.trim().split(/[，,。\s]/u).find((w) => EMOTIONS.includes(w))
-    return first
-  }
-
-  async function maybeAutoSend(sid, slot) {
-    if (!config.autoSendOnTurnEnd) return
-    const a = cfg.autoSend
-    if (!a?.enabled) return
-    if (!(a.channels ?? []).includes('web')) return
-    if (recentSendCount(slot) >= a.limitPer10) return
-    const text = slot.lastUserText
-    if (!text.trim()) return
-    const emotion = a.trigger === 'model' ? await judgeByModel(text) : matchEmotion(text)
-    if (!emotion) return
-    // 发送前单张兜底：文件不存在就删索引、记失效清单、换下一张，最多验证 3 张，全程静默
-    const tried = []
-    let good
-    for (let attempt = 0; attempt < 3; attempt += 1) {
-      const candidate = store.pickLibrary({ emotion, groups: a.groups, exclude: tried })
-      if (!candidate) break
-      tried.push(candidate.id)
-      const p = store.absPath(candidate.file)
-      let ok = false
-      try { ok = existsSync(p) && statSync(p).size > 0 } catch { ok = false }
-      if (ok) { good = candidate; break }
-      store.addMissing({
-        id: candidate.id, displayName: candidate.displayName, originalName: candidate.originalName,
-        group: store.group(candidate.group)?.name ?? candidate.group, at: new Date().toISOString().slice(0, 19) + 'Z',
-      })
-      store.removeItem(candidate.id)
-    }
-    if (!good) {
-      if (tried.length > 0) warn(`情绪「${emotion}」下可用图片已耗尽`)
-      return
-    }
-    slot.sentTurns.push(slot.turn)
-    firePopup(good, text)
-    log(`斗图：${emotion} → ${good.displayName}`)
-  }
-
   ctx.effect(() => ctx.on('session/event', (session, event) => {
     const type = event?.type
     if (!type) return
     const sid = String(session?.header?.id ?? session?.id ?? 'unknown')
     const slot = sessionSlot(sid)
+    // 调试留痕（只记骨架，不记正文）：定位"事件没到" vs "守卫挡住"
+    if (type === 'user/message' || type === 'turn/end' || type === 'turn/start') {
+      eventTrace.push({
+        at: new Date().toISOString().slice(11, 19),
+        type,
+        surfaceOp: event?.surfaceOp ?? null,
+        sourceKind: event?.data?.source?.kind ?? null,
+        reason: typeof event?.data?.reason === 'string' ? event.data.reason : (event?.data?.reason?.kind ?? null),
+        textLen: type === 'user/message' ? String(textOfContent(event?.data?.content) ?? '').length : null,
+      })
+      if (eventTrace.length > 40) eventTrace.shift()
+    }
     if (type === 'turn/start') {
       slot.turn = Number.isSafeInteger(event?.data?.turn) ? event.data.turn : slot.turn + 1
       return
@@ -937,7 +862,7 @@ export function apply(ctx, config) {
     if (type !== 'turn/end') return
     const reason = typeof event?.data?.reason === 'string' ? event.data.reason : event?.data?.reason?.kind
     if (reason !== 'completed') return
-    void maybeAutoSend(sid, slot).catch((e) => warn(`斗图出错：${e?.message ?? e}`))
+    // 自动发图已移除：回合结束后改不了已发出的回复，改为 agent/pre-step 注入提示（见文件末尾）
   }))
 
   /**
@@ -1061,7 +986,7 @@ export function apply(ctx, config) {
         query: { type: 'string', description: '情境词' },
       },
       output: { schema: { type: 'object', additionalProperties: true, properties: { ok: { type: 'boolean' }, text: { type: 'string' } } }, render: (_a, v) => [{ type: 'text', text: v?.text ?? '' }] },
-      async execute(args) {
+      async execute(args, exec) {
         const name = String(args?.name ?? '').trim().toLowerCase()
         const emotion = String(args?.emotion ?? '').trim()
         const q = String(args?.query ?? '').trim().toLowerCase()
@@ -1087,6 +1012,9 @@ export function apply(ctx, config) {
           let ok = false
           try { ok = existsSync(p) && statSync(p).size > 0 } catch { ok = false }
           if (ok) {
+            // 登记到本会话槽：limitPer10 靠这个计数，回合结束后也还认得出「最近 10 轮发过几张」
+            const sid = String(exec?.agent?.session?.header?.id ?? exec?.agent?.session?.id ?? '')
+            if (sid) sessionSlot(sid).sentTurns.push(sessionSlot(sid).turn)
             return { ok: true, text: `![${pick.displayName}](${imgUrl(pick.id)})\n把上面这行原样放进回复即可显示。` }
           }
           store.addMissing({
@@ -1511,6 +1439,12 @@ export function apply(ctx, config) {
               json(res, r.error ? 400 : 200, r.error ? { ok: false, error: r.error } : { ok: true, ...r })
               return
             }
+            if (action === 'removePack') {
+              // 只读的角色包组：允许整包移除（组 + 图 + 文件），之后重新导入会重新下载
+              const r = await store.deletePackGroup(String(body?.id ?? ''), { purgeFiles: body?.purgeFiles !== false })
+              json(res, r.error ? 400 : 200, r.error ? { ok: false, error: r.error } : { ok: true, ...r })
+              return
+            }
             if (action === 'move') {
               const ids = Array.isArray(body?.ids) ? body.ids.map(String) : []
               const to = String(body?.to ?? '')
@@ -1539,10 +1473,29 @@ export function apply(ctx, config) {
             return
           }
 
-          // ---- 斗图气泡（客户端轮询，8 秒内有效）
-          if (rest === '/popup' && req.method === 'GET') {
-            if (!latestPopup || Date.now() - latestPopup.at > 8000) { json(res, 200, { ok: true, popup: null }); return }
-            json(res, 200, { ok: true, popup: latestPopup })
+          // ---- 斗图诊断（只读）：看事件有没有到、slot 里记了什么、配置长什么样
+          if (rest === '/diag' && req.method === 'GET') {
+            const slots = []
+            for (const [sid, s] of sessions) {
+              slots.push({
+                sid, turn: s.turn,
+                lastUserTextLen: String(s.lastUserText ?? '').length,
+                lastUserTextHead: String(s.lastUserText ?? '').slice(0, 30),
+                sentTurns: s.sentTurns,
+                kwEmotion: matchEmotion(s.lastUserText) ?? null,
+              })
+            }
+            json(res, 200, {
+              ok: true,
+              config: {
+                enabled: cfg?.autoSend?.enabled,
+                trigger: cfg?.autoSend?.trigger,
+                limitPer10: cfg?.autoSend?.limitPer10,
+                groups: cfg?.autoSend?.groups,
+              },
+              slots,
+              eventTrace,
+            })
             return
           }
 
@@ -1562,4 +1515,59 @@ export function apply(ctx, config) {
   } catch (e) {
     warn(`初始化数据目录失败：${e?.message ?? e}`)
   }
+
+  // ---------------------------------------------------------------- 斗图提示注入
+  //
+  // 为什么走这条路：回合结束后代码无法再改模型已经发出的回复，所以"自动追加一张图"在协议上做不到。
+  // 参考 dsh-meme 的做法——不靠自动追加，而是给模型立规矩。
+  // 这里用 `agent/pre-step` 每轮在上下文末尾塞一条提示，由模型自己决定要不要发。
+  //
+  // 成本：注入本身不调任何模型（情绪命中走关键词匹配）。关掉「斗图」开关（autoSend.enabled=false）完全不注入。
+  ctx.effect(() => ctx.on('agent/pre-step', async (payload, next) => {
+    const decision = await next()
+    try {
+      if (!cfg?.autoSend?.enabled) return decision
+      if (decision === undefined || decision.kind !== 'enter') return decision
+      if (!Array.isArray(decision.messages) || decision.messages.length === 0) return decision
+      const header = payload?.agent?.session?.header
+      if (header?.origin === 'subagent') return decision
+
+      const sid = String(header?.id ?? payload?.agent?.session?.id ?? '')
+      const slot = sid ? sessionSlot(sid) : undefined
+      const limit = Number(cfg.autoSend.limitPer10 ?? 2)
+      const used = slot ? recentSendCount(slot) : 0
+      const quota = Math.max(0, limit - used)
+      // 额度用完就不注入：既省 token，也免模型无视频率一直发
+      if (quota === 0) return decision
+
+      // 关键词命中是纯字符串匹配，不调模型；只有 keywords 模式才把它当指令
+      const kw = cfg.autoSend.trigger === 'keywords' && slot ? matchEmotion(slot.lastUserText) : undefined
+      const groups = (cfg.autoSend.groups ?? []).filter(Boolean)
+      const lines = [
+        '【斗图】你可以贴表情图。规则：',
+        '- 只有在用户这条消息情绪明显（开心/搞怪/疲惫/生气/无语……）时才发，平淡的技术讨论不要发。',
+        '- 发法：调 meme_send（参数 emotion 或 query），它返回一行 Markdown 图片，把那一行原样放进你的回复正文。',
+      ]
+      if (kw) lines.push(`- 用户这句话命中情绪「${kw}」，建议就发这个情绪。`)
+      if (cfg.autoSend.trigger === 'model') lines.push('- 该发哪个情绪由你自己判断。')
+      lines.push(`- 最近 10 轮已发 ${used} 张，本轮最多还能发 ${quota} 张。`)
+      lines.push(groups.length > 0 ? `- 可用分组：${groups.join(', ')}。` : '- 未限制分组。')
+      const hint = lines.join('\n')
+      return {
+        ...decision,
+        messages: [
+          ...decision.messages,
+          {
+            role: 'user',
+            content: [{ type: 'text', text: hint }],
+            source: { kind: 'plugin:nekowhale-meme', form: 'notice', summary: '斗图提示' },
+          },
+        ],
+      }
+    } catch (e) {
+      // 注入失败要 fail-open：绝不能因为插件影响正常对话
+      try { warn(`斗图提示注入失败（已放行原始消息）：${e?.message ?? e}`) } catch {}
+      return decision
+    }
+  }))
 }

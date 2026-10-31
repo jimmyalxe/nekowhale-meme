@@ -159,12 +159,6 @@ window.__ModuleLoader__.load({ id: 'nekowhale-meme', factory: (require) => {
       position: 'absolute', top: 3, left: on ? 21 : 3, width: 18, height: 18, borderRadius: '50%',
       background: '#fff', transition: 'left .15s',
     }),
-    bubble: {
-      position: 'fixed', right: 20, bottom: 20, zIndex: 9999, padding: 10, borderRadius: 14,
-      border: `1px solid ${C.border}`, boxShadow: '0 12px 32px rgba(0,0,0,.35)',
-    maxWidth: 200,
-    },
-    bubbleImg: { width: 140, height: 'auto', borderRadius: 8, display: 'block', margin: '0 auto' },
   }
 
   // ---------------------------------------------------------------- HTTP
@@ -676,21 +670,33 @@ window.__ModuleLoader__.load({ id: 'nekowhale-meme', factory: (require) => {
               h('span', { style: { fontSize: 11, color: g.virtual && g.count > 0 ? C.warn : C.mute, marginRight: 8 } },
                 `${g.count} 张${g.virtual ? ' · 虚拟组' : g.readonly ? ' · 只读' : ''}`),
               // 虚拟组（未分组）不能改名/删除——它没有真实分组行
-              (g.readonly || g.virtual) ? h('span', { style: { fontSize: 11, color: C.mute } },
-                g.virtual ? '这些图没有归属分组' : '只读') : h('span', { style: S.row },
-                h(Btn, {
-                  onClick: () => {
-                    const name = window.prompt('新的组名', g.name)
-                    if (name && name.trim() && name.trim() !== g.name) act(() => apiPost('/group', { action: 'rename', id: g.id, name: name.trim() }))
-                  },
-                }, '重命名'),
-                h(Btn, {
-                  kind: 'danger',
-                  onClick: () => {
-                    if (!window.confirm(`删除分组「${g.name}」？组里 ${g.count} 张图也会一起删掉。`)) return
-                    act(() => apiPost('/group', { action: 'delete', id: g.id, purgeFiles: true }))
-                  },
-                }, '删除')))),
+              g.virtual
+                ? h('span', { style: { fontSize: 11, color: C.mute } }, '这些图没有归属分组')
+                : g.readonly
+                  // 只读的角色包组：不能改名、不能零散编辑，但可以整包移除（否则下载错了没退路）
+                  ? h('span', { style: S.row },
+                    h('span', { style: { fontSize: 11, color: C.mute, marginRight: 8 } }, '只读 · 包'),
+                    h(Btn, {
+                      kind: 'danger',
+                      onClick: () => {
+                        if (!window.confirm(`移除角色包「${g.name}」？组里 ${g.count} 张图和磁盘文件都会删掉。\n之后重新导入会重新下载。`)) return
+                        act(() => apiPost('/group', { action: 'removePack', id: g.id, purgeFiles: true }))
+                      },
+                    }, '移除包'))
+                  : h('span', { style: S.row },
+                    h(Btn, {
+                      onClick: () => {
+                        const name = window.prompt('新的组名', g.name)
+                        if (name && name.trim() && name.trim() !== g.name) act(() => apiPost('/group', { action: 'rename', id: g.id, name: name.trim() }))
+                      },
+                    }, '重命名'),
+                    h(Btn, {
+                      kind: 'danger',
+                      onClick: () => {
+                        if (!window.confirm(`删除分组「${g.name}」？组里 ${g.count} 张图也会一起删掉。`)) return
+                        act(() => apiPost('/group', { action: 'delete', id: g.id, purgeFiles: true }))
+                      },
+                    }, '删除')))),
             h('div', { style: { ...S.row, marginTop: 8 } },
               h('input', { style: { ...S.input, minWidth: 140, maxWidth: 220 }, placeholder: '新分组名', value: newGroup, onChange: (e) => setNewGroup(e.target.value) }),
               h(Btn, {
@@ -963,7 +969,7 @@ window.__ModuleLoader__.load({ id: 'nekowhale-meme', factory: (require) => {
     if (!cfg) {
       return h('div', { style: S.page }, h('div', { style: S.empty }, '正在读取设置…'))
     }
-    const a = cfg.autoSend ?? { enabled: false, channels: ['web', 'im'], limitPer10: 2, trigger: 'keywords', groups: [] }
+    const a = cfg.autoSend ?? { enabled: false, limitPer10: 2, trigger: 'keywords', groups: [] }
     const groups = st.groups ?? []
     const pickedPacks = packs.filter((p) => selectedPacks.includes(p.name))
     const pickedCount = pickedPacks.reduce((s, p) => s + p.count, 0)
@@ -1111,25 +1117,12 @@ window.__ModuleLoader__.load({ id: 'nekowhale-meme', factory: (require) => {
 
       // ---- 斗图
       h('div', { style: S.card },
-        h('div', { style: S.cardTitle }, '斗图'),
-        h('div', { style: S.field },
-          h('span', { style: S.label }, '应景自动发'),
+        h('div', { style: S.cardTitle },
+          '斗图',
           h('button', {
             type: 'button', style: S.toggle(a.enabled), onClick: () => patchCfg((c) => ({ ...c, autoSend: { ...a, enabled: !a.enabled } })),
           }, h('span', { style: S.toggleDot(a.enabled) })),
-          h('span', { style: { fontSize: 11, color: C.mute } }, a.enabled ? '已开启' : '已关闭')),
-        h('div', { style: S.field },
-          h('span', { style: S.label }, '适用渠道'),
-          ['web', 'im'].map((ch) => h('label', { key: ch, style: { ...S.row, gap: 6, fontSize: 13 } },
-            h('input', {
-              type: 'checkbox', checked: (a.channels ?? []).includes(ch),
-              onChange: () => {
-                const cur = new Set(a.channels ?? [])
-                if (cur.has(ch)) cur.delete(ch); else cur.add(ch)
-                patchCfg((c) => ({ ...c, autoSend: { ...a, channels: [...cur] } }))
-              },
-            }),
-            ch === 'web' ? 'Web 聊天' : 'QQ / 微信'))),
+          h('span', { style: { fontSize: 11, color: C.mute, fontWeight: 'normal' } }, a.enabled ? '已开启' : '已关闭')),
         h('div', { style: S.field },
           h('span', { style: S.label }, '频率'),
           h(Stepper, {
@@ -1148,11 +1141,7 @@ window.__ModuleLoader__.load({ id: 'nekowhale-meme', factory: (require) => {
             h('input', {
               type: 'radio', checked: a.trigger === 'model', onChange: () => patchCfg((c) => ({ ...c, autoSend: { ...a, trigger: 'model' } })),
             }),
-            '模型判断')),
-        // 只有费 token 的「模型判断」才出警告；词表匹配不写任何提示
-        a.trigger === 'model' ? h('div', { style: S.warnBox },
-          h('div', { style: { fontWeight: 700, marginBottom: 4 } }, '⚠ 模型判断模式'),
-          h('div', null, '每轮额外调用模型判断情绪，持续消耗 token 与额度。')) : null),
+            '模型判断'))),
       // ---- AI 可用组
       h('div', { style: S.card },
         h('div', { style: S.cardTitle }, 'AI 可用组'),
@@ -1172,7 +1161,6 @@ window.__ModuleLoader__.load({ id: 'nekowhale-meme', factory: (require) => {
     const [err, setErr] = useState('')
     const [busy, setBusy] = useState(false)
     const [toastMsg, setToastMsg] = useState('')
-    const [popup, setPopup] = useState(null)
     const q = useRef({ tab: 'pending', group: '' })
     const alive = useRef(true)
 
@@ -1261,23 +1249,6 @@ window.__ModuleLoader__.load({ id: 'nekowhale-meme', factory: (require) => {
       return () => window.clearInterval(t)
     }, [load, st.tagging?.active])
 
-    // 斗图气泡（Web 渠道）
-    useEffect(() => {
-      const t = window.setInterval(async () => {
-        try {
-          const d = await apiGet('/popup')
-          if (d?.popup) setPopup(d.popup)
-        } catch { /* 忽略 */ }
-      }, 3000)
-      return () => window.clearInterval(t)
-    }, [])
-
-    useEffect(() => {
-      if (!popup) return
-      const t = window.setTimeout(() => setPopup(null), 8000)
-      return () => window.clearTimeout(t)
-    }, [popup])
-
     const reload = useCallback(async (next) => { await load(next) }, [load])
 
     const full = props?.view === 'page'
@@ -1304,9 +1275,6 @@ window.__ModuleLoader__.load({ id: 'nekowhale-meme', factory: (require) => {
       toastMsg ? h('div', {
         style: { position: 'fixed', left: '50%', bottom: 24, transform: 'translateX(-50%)', zIndex: 10000, background: inv.bg, color: inv.fg, border: `1px solid ${C.border}`, borderRadius: 10, padding: '8px 14px', fontSize: 12, colorScheme: scheme },
       }, toastMsg) : null,
-      popup ? h('div', { style: { ...S.bubble, colorScheme: scheme, background: inv.bg, color: inv.fg }, onClick: () => setPopup(null) },
-        h('img', { src: popup.url, alt: popup.name, style: S.bubbleImg }),
-        h('div', { style: { fontSize: 11, color: C.mute, textAlign: 'center', marginTop: 6 } }, popup.name || '')) : null,
     )
   }
 
