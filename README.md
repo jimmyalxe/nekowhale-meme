@@ -266,7 +266,7 @@ POST /nekowhale-meme/health/clear          需 confirm:true，整份清空
 
 参考实现：[dsh-nekowhale-stickers](https://github.com/Loping151/dsh-nekowhale-stickers)——
 本插件在功能设计上参考了它（队列/识别/分组的思路），并沿用它的 25 情绪词表与标注文件格式，
-但**代码为本鱼（骄傲（可以放表情包））编写，代码的事情全凭天意**。
+但**代码为本鱼编写，代码的事情全凭天意**<img src="https://kiriyuki.com/media/gif/%E5%A4%A7%E8%82%A5%E9%B1%BC/16N02_%E8%B6%85%E5%8B%87%E7%9A%84.gif" width="40" alt="大肥鱼：我超勇的" title="大肥鱼 · 我超勇的 · 图由 kiriyuki.com 提供">。
 
 ## 📄 许可
 
