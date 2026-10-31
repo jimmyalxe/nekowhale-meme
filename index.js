@@ -1015,7 +1015,13 @@ export function apply(ctx, config) {
             // 登记到本会话槽：limitPer10 靠这个计数，回合结束后也还认得出「最近 10 轮发过几张」
             const sid = String(exec?.agent?.session?.header?.id ?? exec?.agent?.session?.id ?? '')
             if (sid) sessionSlot(sid).sentTurns.push(sessionSlot(sid).turn)
-            return { ok: true, text: `![${pick.displayName}](${imgUrl(pick.id)})\n把上面这行原样放进回复即可显示。` }
+            const out = [
+              `![${pick.displayName}](${imgUrl(pick.id)})`,
+              `本地文件：${p}`,
+              'Web 会话：把第一行 Markdown 原样放进回复即可显示。',
+              'IM/QQ 会话（本会话有 dsh_im_return_file 工具）：把「本地文件」那个路径交给 dsh_im_return_file({ path })，由宿主上传原图。',
+            ]
+            return { ok: true, text: out.join('\n') }
           }
           store.addMissing({
             id: pick.id, displayName: pick.displayName, originalName: pick.originalName,
@@ -1516,6 +1522,118 @@ export function apply(ctx, config) {
     warn(`初始化数据目录失败：${e?.message ?? e}`)
   }
 
+  // ---------------------------------------------------------------- 对外只读服务
+  //
+  // 进程内共享：别的插件 `ctx.get('nekowhaleMeme')` 直接拿到同一个对象，不用自己读
+  // index.json 再抄一份弱化版的检索（dsh-meme 的 `dshMeme`、stickers 的 `stickers` 都是这个套路）。
+  // 只读、幂等、不发图：发图由调用方自己决定（Web 贴 Markdown 行 / IM 交 dsh_im_return_file）。
+  // 写操作（导入 / 打标 / 删除）**故意不提供**——识别必须由用户在插件页当面确认。
+  const serviceAllowGroups = () => ((cfg?.autoSend?.groups?.length ?? 0) > 0 ? new Set(cfg.autoSend.groups) : undefined)
+  function serviceMatch(it, { query = '', emotion = '', name = '', group = '' }) {
+    if (group && it.group !== group) return false
+    if (emotion && it.emotion !== emotion) return false
+    if (name && !String(it.displayName ?? '').toLowerCase().includes(String(name).toLowerCase())) return false
+    const q = String(query).trim().toLowerCase()
+    if (!q) return true
+    const blob = `${it.displayName} ${it.originalName} ${it.emotion} ${(it.tags ?? []).join(' ')} ${it.use} ${it.desc}`.toLowerCase()
+    return q.split(/\s+/u).every((w) => blob.includes(w))
+  }
+  /** AI 可用组 + 已启用，与模型侧工具看到的是同一批图。 */
+  function servicePool() {
+    const allow = serviceAllowGroups()
+    return store.itemsByState(STATE_LIBRARY)
+      .filter((it) => it.enabled !== false)
+      .filter((it) => (allow ? allow.has(it.group) : true))
+  }
+  const memeService = {
+    /** 只读快照：数据目录、各状态计数、分组与 AI 可用组。 */
+    state() {
+      try {
+        const allow = new Set(cfg?.autoSend?.groups ?? [])
+        const lib = store.itemsByState(STATE_LIBRARY)
+        const countOf = new Map()
+        for (const it of lib) countOf.set(it.group, (countOf.get(it.group) ?? 0) + 1)
+        return {
+          ok: true,
+          dataDir: store.dataDir,
+          counts: {
+            pending: store.itemsByState(STATE_PENDING).length,
+            tagged: store.itemsByState(STATE_TAGGED).length,
+            library: lib.length,
+          },
+          groups: store.groups().map((g) => ({ id: g.id, name: g.name, readonly: g.readonly === true, count: countOf.get(g.id) ?? 0, aiVisible: allow.size === 0 || allow.has(g.id) })),
+        }
+      } catch (e) { return { ok: false, reason: String(e?.message ?? e) } }
+    },
+    /** 检索候选（不改索引、不碰文件）。 */
+    search({ query = '', emotion = '', name = '', group = '', limit = 8 } = {}) {
+      try {
+        const n = Math.min(30, Math.max(1, Number(limit) || 8))
+        const hits = servicePool().filter((it) => serviceMatch(it, { query, emotion, name, group })).slice(0, n)
+        return {
+          ok: true,
+          memes: hits.map((it) => ({
+            id: it.id,
+            name: it.displayName,
+            emotion: it.emotion ?? null,
+            tags: [...(it.tags ?? [])],
+            use: it.use ?? '',
+            desc: it.desc ?? '',
+            group: it.group,
+            path: store.absPath(it.file),
+            url: imgUrl(it.id),
+          })),
+        }
+      } catch (e) { return { ok: false, memes: [], reason: String(e?.message ?? e) } }
+    },
+    /** 挑一张并返回磁盘绝对路径；文件失效的沿用 meme_send 那套兜底（最多换 3 张）。 */
+    pick({ query = '', emotion = '', name = '', group = '' } = {}) {
+      try {
+        if (!String(query).trim() && !String(emotion).trim() && !String(name).trim()) {
+          return { ok: false, reason: '没有给 query / emotion / name 任一个' }
+        }
+        const pool = servicePool().filter((it) => serviceMatch(it, { query, emotion, name, group }))
+        if (pool.length === 0) return { ok: false, reason: '没有匹配的表情' }
+        const tried = []
+        for (let attempt = 0; attempt < 3; attempt += 1) {
+          const rest = pool.filter((it) => !tried.includes(it.id))
+          if (rest.length === 0) break
+          const hit = rest[Math.floor(Math.random() * rest.length)]
+          tried.push(hit.id)
+          const p = store.absPath(hit.file)
+          let alive = false
+          try { alive = existsSync(p) && statSync(p).size > 0 } catch { alive = false }
+          if (alive) {
+            return {
+              ok: true, id: hit.id, name: hit.displayName, emotion: hit.emotion ?? null,
+              tags: [...(hit.tags ?? [])], group: hit.group, path: p, url: imgUrl(hit.id),
+            }
+          }
+          store.addMissing({
+            id: hit.id, displayName: hit.displayName, originalName: hit.originalName,
+            group: store.group(hit.group)?.name ?? hit.group, at: new Date().toISOString().slice(0, 19) + 'Z',
+          })
+          store.removeItem(hit.id)
+        }
+        return { ok: false, reason: '该条件下可用图片已耗尽（文件都失效，已从索引移除）' }
+      } catch (e) { return { ok: false, reason: String(e?.message ?? e) } }
+    },
+    /** id → 磁盘绝对路径；没有这张返回空串。 */
+    pathOf(id) {
+      try {
+        const it = store.item(String(id))
+        return it ? store.absPath(it.file) : ''
+      } catch { return '' }
+    },
+    /** id → 可直接塞进 Markdown 的图片 URL（只有本机可达，IM 渠道不可用）。 */
+    urlOf(id) {
+      try { return store.item(String(id)) ? imgUrl(String(id)) : '' } catch { return '' }
+    },
+  }
+  if (typeof ctx.provide === 'function') {
+    try { ctx.provide('nekowhaleMeme', Object.freeze(memeService)) } catch { /* 老宿主 / 重复注册：调用方要能自行兜底 */ }
+  }
+
   // ---------------------------------------------------------------- 斗图提示注入
   //
   // 为什么走这条路：回合结束后代码无法再改模型已经发出的回复，所以"自动追加一张图"在协议上做不到。
@@ -1523,6 +1641,32 @@ export function apply(ctx, config) {
   // 这里用 `agent/pre-step` 每轮在上下文末尾塞一条提示，由模型自己决定要不要发。
   //
   // 成本：注入本身不调任何模型（情绪命中走关键词匹配）。关掉「斗图」开关（autoSend.enabled=false）完全不注入。
+  /** IM 渠道入站消息会被 dsh-im 包一层 <dsh_im_source>；用它判断当前会话是不是 IM/QQ。 */
+  function messagesHaveImSource(messages) {
+    const textOf = (m) => (Array.isArray(m?.content)
+      ? m.content.map((c) => (typeof c?.text === 'string' ? c.text : '')).join('')
+      : (typeof m?.content === 'string' ? m.content : ''))
+    let seen = 0
+    for (let i = messages.length - 1; i >= 0 && seen < 3; i -= 1) {
+      if (messages[i]?.role !== 'user') continue
+      seen += 1
+      if (textOf(messages[i]).includes('<dsh_im_source')) return true
+    }
+    return false
+  }
+
+  /**
+   * dsh-im 在进程内时才会注册 `dsh_im_return_file`，它同时 `provide('dshIm')` 了服务。
+   * 用它当「文件投递通道到底在不在」的判据——光看消息里的 <dsh_im_source> 不够，
+   * 没有这个工具的会话里让模型去调它，等于教模型调一个不存在的工具。
+   */
+  function hasImDelivery() {
+    try {
+      const svc = typeof ctx.get === 'function' ? ctx.get('dshIm') : undefined
+      return svc !== undefined && svc !== null
+    } catch { return false }
+  }
+
   ctx.effect(() => ctx.on('agent/pre-step', async (payload, next) => {
     const decision = await next()
     try {
@@ -1539,6 +1683,11 @@ export function apply(ctx, config) {
       const quota = Math.max(0, limit - used)
       // 额度用完就不注入：既省 token，也免模型无视频率一直发
       if (quota === 0) return decision
+      // IM/QQ：dsh-im 给入站消息包了 <dsh_im_source>。但如果它不在进程内（没 provide dshIm），
+      // 就没有 dsh_im_return_file 可调，提示等于白说 —— 直接不注入。
+      const imSession = messagesHaveImSource(decision.messages)
+      if (imSession && !hasImDelivery()) return decision
+      const imMode = imSession
 
       // 关键词命中是纯字符串匹配，不调模型；只有 keywords 模式才把它当指令
       const kw = cfg.autoSend.trigger === 'keywords' && slot ? matchEmotion(slot.lastUserText) : undefined
@@ -1546,8 +1695,14 @@ export function apply(ctx, config) {
       const lines = [
         '【斗图】你可以贴表情图。规则：',
         '- 只有在用户这条消息情绪明显（开心/搞怪/疲惫/生气/无语……）时才发，平淡的技术讨论不要发。',
-        '- 发法：调 meme_send（参数 emotion 或 query），它返回一行 Markdown 图片，把那一行原样放进你的回复正文。',
       ]
+      // IM 渠道：IM 服务器抓不到 127.0.0.1，只能把本地原文件交给宿主上传
+      if (imMode) {
+        lines.push('- 发法：调 meme_send（参数 emotion 或 query），它会给出「本地文件：」一行绝对路径。')
+        lines.push('- 本会话是 IM/QQ 渠道：不要贴 http://127.0.0.1 的 Markdown 图片行（IM 服务器抓不到你本机）。把那个绝对路径交给 dsh_im_return_file({ path })，由宿主上传原图——这条是真·文件投递，不是链接。')
+      } else {
+        lines.push('- 发法：调 meme_send（参数 emotion 或 query），它返回一行 Markdown 图片，把那一行原样放进你的回复正文。')
+      }
       if (kw) lines.push(`- 用户这句话命中情绪「${kw}」，建议就发这个情绪。`)
       if (cfg.autoSend.trigger === 'model') lines.push('- 该发哪个情绪由你自己判断。')
       lines.push(`- 最近 10 轮已发 ${used} 张，本轮最多还能发 ${quota} 张。`)

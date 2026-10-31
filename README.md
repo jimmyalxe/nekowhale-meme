@@ -181,9 +181,23 @@ pending ──识别成功──▶ tagged ──确认入库──▶ library
 在协议上做不到。这里的做法是**在回合开始前给模型立规矩**：
 
 1. 每轮在上下文末尾追加一条 `plugin:nekowhale-meme` 提示，写明「情绪明显时才发」「一次一张」
-   「调 `meme_send` 把它返回的 Markdown 行原样放进回复」；
+   以及**这张图该怎么发出去**（见下）；
 2. 模型自己判断这条消息要不要配图，要就调 `meme_send`，图直接出现在回复正文里；
 3. 关掉「斗图」这一个开关就完全不注入，也就不会为它多花 token。
+
+### 两种渠道，两种发法
+
+`meme_send` 的返回值里同时给出「Markdown 图片行」和「本地文件绝对路径」，提示会按当前渠道
+告诉模型用哪一个：
+
+| 渠道 | 判定方式 | 发法 |
+|---|---|---|
+| Web / 桌面 | 普通会话 | 把 `![名字](http://127.0.0.1:<端口>/nekowhale-meme/image/<id>)` 原样放进回复正文 |
+| IM（QQ / 微信 / 飞书 …） | 入站消息被 dsh-im 包了 `<dsh_im_source>` | 调 `dsh_im_return_file({ path })`，把**本地原文件**交给宿主上传成原生图片 |
+
+为什么 IM 不能用链接：`127.0.0.1` 是你这台机器上的地址，IM 服务器抓不到；dsh-im 也不会去
+解析回复正文里的 `![]()`。而 `dsh_im_return_file` 是宿主提供的真·文件投递接口——图片按原生
+图片消息发，失败退回文件附件。注意它需要会话里有这个工具（装了 dsh-im 才有）。
 
 情绪词匹配模式（`trigger: keywords`）会用纯关键词匹配算出这句话的情绪，连同建议一起写进提示——
 **这一步不调模型**。模型判断模式（`trigger: model`）只把判断权交给模型，插件自己不再额外请求一次 LLM。
@@ -198,7 +212,7 @@ pending ──识别成功──▶ tagged ──确认入库──▶ library
 |---|---|
 | `meme_import` | 收进待识别队列。可给 `path` / `url`；**都留空 = 取本会话最近一张聊天附件** |
 | `meme_search` | 搜已入库图，返回标签与图片地址（绝对 URL，聊天界面可直接显示） |
-| `meme_send` | 发图（含失效兜底：坏了就换下一张，最多 3 张） |
+| `meme_send` | 发图（含失效兜底：坏了就换下一张，最多 3 张）；返回 Markdown 图片行 + 本地文件绝对路径 |
 | `meme_browse` | 浏览队列或库存（不检索，只看现状） |
 
 > **`meme_browse` 原名 `meme_list`。** 原因：它与 `yyh-001/dsh-meme` 的工具
@@ -238,6 +252,23 @@ POST /nekowhale-meme/group                 create / rename / delete / move / rem
 GET  /nekowhale-meme/diag                  斗图诊断（slot / 配置 / 事件留痕，只读）
 POST /nekowhale-meme/health/clear          需 confirm:true，整份清空
 ```
+
+## 对外服务（给别的插件用）
+
+插件在进程内注册了一个**只读**服务 `nekowhaleMeme`，别的插件用它挑图、发图，不用重复实现检索逻辑：
+
+```js
+const meme = ctx.get('nekowhaleMeme')   // 没有则 undefined
+meme.state()                             // { ok, dataDir, counts:{pending,tagged,library}, groups:[{id,name,readonly,count,aiVisible}] }
+meme.search({ emotion:'开心', limit:8 })  // { ok, memes:[{ id,name,emotion,tags,use,desc,group,path,url }] }
+meme.pick({ query:'摸鱼' })               // { ok, id, name, emotion, tags, group, path, url } | { ok:false, reason }
+meme.pathOf(id)                          // 磁盘绝对路径；查不到 ''
+meme.urlOf(id)                           // http://127.0.0.1:<port>/nekowhale-meme/image/<id>；查不到 ''
+```
+
+`path` 是本地绝对路径，适合交给 `dsh_im_return_file({ path })` 这类文件投递接口；`url` 只在本机可达，适合 Web 回复里的 Markdown 图片。
+
+**刻意不暴露写操作**——导入、识别打标签、删除、改分组都不在服务里。打标签会消耗真正的模型额度，只能由用户在设置页/队列页当面点，任何插件（包括模型）都不能替你触发。
 
 
 ## 👥 角色
