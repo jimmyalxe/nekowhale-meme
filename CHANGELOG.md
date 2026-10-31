@@ -1,5 +1,50 @@
 # Changelog
 
+## 1.3.2 — 2026-10-31
+
+**修一个会「写坏会话历史」的严重 bug**：斗图提示注入的消息没有 `id`，
+导致会话文件一旦落盘就通不过宿主校验，重新打开历史直接报错。
+
+### 症状
+
+某个会话打开时提示：
+
+```
+历史加载失败：stored session "..." is corrupt:
+Error: session event at seq N lacks an identified message
+```
+
+这个会话不是"打不开某一页"，是**整条历史加载失败**——因为宿主在恢复历史时
+会逐条 `adoptSessionEvent()`，第一条不合规就 throw 并放弃整份日志。
+
+### 原因
+
+`agent/pre-step` 里注入的那条提示是手写的普通对象：
+
+```js
+{ role: 'user', content: [...], source: { kind: 'plugin:nekowhale-meme', ... } }
+```
+
+宿主 `assertMessageEventShape()` 对 `user/message` 的要求是：
+`data.id` 必须是非空 string（其他消息类型看 `data.message.id`）。
+手写对象没有 `id`，所以这条事件**写进去就是无效数据**；写入时宿主不拦，
+只在下次读历史时暴雷——错误地看起来像"会话文件坏了"。
+
+实测一个会话里积了 53 条这种无 id 事件：每次注入攒一条，直到某次重启读历史。
+
+### 修法
+
+- 注入消息改为 `id: randomUUID()`（`node:crypto`），每次注入一个新 id。
+- 补回归测试：注入消息必须带非空 id、且两次注入的 id 不同
+  （写死常量会让两条注入在历史里撞车）。
+- 已存在的坏数据：仓库附带的 `design/fix-session.mjs` 可从会话文件里补齐缺失 id
+  （只补 `id`，其余字段逐字节不动；帧结构原样保留）。
+
+### 为什么别的插件没这毛病
+
+meow-memory 等插件用的是宿主的 `createUserMessage()`，它自带 id。
+只有自己手写消息对象才会漏——所以这是本项目独有的坑。
+
 ## 1.3.1 — 2026-10-31
 
 **斗图从「插件替你发」改成「插件提醒模型发」**，并删掉了一条每轮白烧 token 的死路径。

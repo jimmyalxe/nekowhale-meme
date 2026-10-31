@@ -12,6 +12,7 @@
 // 注意：本文件不 `export default`（DSH loader 会优先它并丢掉 inject / Config）。
 import Schema from '@deepseek-ai/schemastery'
 import { execFile } from 'node:child_process'
+import { randomUUID } from 'node:crypto'
 import { createReadStream, existsSync, readFileSync, rmSync, statSync } from 'node:fs'
 import { copyFile, mkdir, readdir, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -1713,6 +1714,11 @@ export function apply(ctx, config) {
         messages: [
           ...decision.messages,
           {
+            // 必须带 id：宿主 append 时 adoptSessionEvent -> assertMessageEventShape
+            // 要求 user/message 的 data.id 是非空 string。缺了这条事件就是「落盘即无效」，
+            // 会话重载时抛 "session event at seq N lacks an identified message" 直接打不开。
+            // 2026-10-31 踩过一次：一个会话里 53 条注入事件全无 id，历史读不出来。
+            id: randomUUID(),
             role: 'user',
             content: [{ type: 'text', text: hint }],
             source: { kind: 'plugin:nekowhale-meme', form: 'notice', summary: '斗图提示' },
