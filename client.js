@@ -1141,7 +1141,21 @@ window.__ModuleLoader__.load({ id: 'nekowhale-meme', factory: (require) => {
             h('input', {
               type: 'radio', checked: a.trigger === 'model', onChange: () => patchCfg((c) => ({ ...c, autoSend: { ...a, trigger: 'model' } })),
             }),
-            '模型判断'))),
+            '模型判断')),
+        // 「真斗图」联动候选窗点击行为（用户 2026-11-05 要求放设置页）：
+        // 开=图片模式（点图发真图片附件，双方可见，每条 ~170-400 token）；
+        // 关=文字模式（点图插 Markdown 文本行，~40 token，但自己气泡显原始文本）。
+        // AI 侧 meme_send 发图不受此开关影响（模型发的永远是图片）。
+        h('div', { style: S.field },
+          h('span', { style: S.label }, '真斗图'),
+          h('button', {
+            type: 'button', style: S.toggle(cfg.pickerMode !== 'text'),
+            onClick: () => patchCfg((c) => ({ ...c, pickerMode: c.pickerMode === 'text' ? 'image' : 'text' })),
+          }, h('span', { style: S.toggleDot(cfg.pickerMode !== 'text') })),
+          h('span', { style: { fontSize: 11, color: C.mute } },
+            cfg.pickerMode === 'text'
+              ? '关：候选窗点图=文字发送（省 token，自己消息显文本）'
+              : '开：候选窗点图=图片发送（双方可见，已缩小省 token）'))),
       // ---- AI 可用组
       h('div', { style: S.card },
         h('div', { style: S.cardTitle }, 'AI 可用组'),
@@ -1278,6 +1292,376 @@ window.__ModuleLoader__.load({ id: 'nekowhale-meme', factory: (require) => {
     )
   }
 
+  // ------------------------------------------------------------ 输入框表情按钮
+  // 位置确认阶段：只渲染按钮，不绑点击。槽位 conversation.input.right =
+  // 「发送按钮之前的紧凑控件」，所以它会出现在工具行右端、紧邻发送键左侧。
+  // 图标用表情库里的鲸鱼娘（用户 2026-11-05 指定「截取脸部，不露出身体」），
+  // 走已有图片路由；那张图若被删/失效，onError 回退成 🐳 文字，不留破图。
+  const PICKER_ICON_ID = '20261030T123213-ded7c9'   // 鲸鱼娘比心（fav 组，413×413）
+
+  // 脸部特写靠 CSS 放大裁切实现，不生成新素材、不动打包白名单：
+  // 把原图按 ICON_ZOOM 倍渲染，再用 24×24 的窗口只框住脸部。
+  // 原图 413×413：取景框 ≈ (122,86)-(294,258)——呆毛/头饰/双眼/张嘴全进框，
+  // 比心的手与围裙裁掉（用户 2026-11-05 要求「只取脸部，不露出身体」）。
+  const ICON_BOX = 24
+  const ICON_ZOOM = 2.4
+  const ICON_FACE = { x: 0.501, y: 0.42 }
+
+  const MemePickerButton = () => {
+    const [iconBroken, setIconBroken] = useState(false)
+    const [open, setOpen] = useState(false)
+    const wrapRef = useRef(null)
+    // 点外面收起（用户 UI 偏好⑧）：监听在按钮包装层之外（同样防无 DOM 环境）
+    useEffect(() => {
+      if (!open) return undefined
+      if (typeof document === 'undefined' || typeof document.addEventListener !== 'function') return undefined
+      const onDown = (e) => {
+        if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false)
+      }
+      document.addEventListener('mousedown', onDown)
+      return () => document.removeEventListener('mousedown', onDown)
+    }, [open])
+    const big = ICON_BOX * ICON_ZOOM
+    const offset = (c) => Math.round(ICON_BOX / 2 - c * big)
+    return h('span', { ref: wrapRef, style: { position: 'relative', display: 'inline-flex', flex: '0 0 auto' } },
+      h('button', {
+        type: 'button',
+        title: '表情斗图',
+        'aria-label': '表情斗图',
+        onClick: () => setOpen((v) => !v),
+        style: {
+          display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+          width: 28, height: 28, padding: 0, flex: '0 0 auto',
+          border: `1px solid ${C.border}`, borderRadius: 8,
+          background: open ? C.accentSoft : C.surface, color: 'inherit',
+          fontSize: 15, lineHeight: 1, cursor: 'pointer', opacity: 0.9,
+        },
+      }, iconBroken
+        ? '🐳'
+        : h('span', {
+          // 裁切窗口：overflow hidden 把放大后的图只留脸部那一格
+          style: {
+            position: 'relative', display: 'block',
+            width: ICON_BOX, height: ICON_BOX, overflow: 'hidden',
+            borderRadius: 8, flex: '0 0 auto',
+          },
+        }, h('img', {
+          src: `${API}/image/${encodeURIComponent(PICKER_ICON_ID)}`,
+          alt: '',
+          draggable: false,
+          style: {
+            position: 'absolute', display: 'block',
+            width: big, height: big, objectFit: 'cover',
+            left: offset(ICON_FACE.x), top: offset(ICON_FACE.y),
+          },
+          onError: () => setIconBroken(true),
+        }))),
+      open ? h(MemeGallery, { onClose: () => setOpen(false) }) : null,
+    )
+  }
+
+  // ------------------------------------------------------------ 候选窗（分页）
+  // 用户 2026-11-05 定：4×4 一页；第一页=常用（最近使用的 12 张），
+  // 第二页=大肥鱼（只读包组），第三页起=其余自定义组依次排。
+  // 点图 = 预览（放大 + 名字 + 组 + 情绪）；预览里「发送」才落到会话（下一轮接发送）。
+  const PAGE_COLS = 4
+  const PAGE_ROWS = 4
+  const PAGE_SIZE = PAGE_COLS * PAGE_ROWS
+
+  // 找到常驻 composer 的可编辑区：宿主是 Lexical 绑定的 contenteditable，
+  // 全页可能不止一个（Univer 表格等也有），composer 永远在最下方，取可见
+  // 且底边最低的那个。找不到返回 null，调用方走剪贴板兜底。
+  function findComposerEditor() {
+    if (typeof document === 'undefined' || !document.querySelectorAll) return null
+    const cands = Array.from(document.querySelectorAll('[contenteditable="true"]')).filter((el) => {
+      const r = el.getBoundingClientRect()
+      return r.width > 40 && r.height > 8
+    })
+    if (cands.length === 0) return null
+    cands.sort((a, b) => b.getBoundingClientRect().bottom - a.getBoundingClientRect().bottom)
+    return cands[0]
+  }
+
+  // 把 Markdown 图片行插进 composer：聚焦 → 光标挪到末尾 → execCommand。
+  // execCommand('insertText') 会走 beforeinput，Lexical 认这条正规通道
+  // （语音输入插件同款做法），直接改 DOM 反而会被编辑器状态覆盖。
+  function insertIntoComposer(text) {
+    const el = findComposerEditor()
+    if (!el || typeof document === 'undefined' || !document.execCommand) return false
+    el.focus()
+    try {
+      const sel = window.getSelection()
+      const range = document.createRange()
+      range.selectNodeContents(el)
+      range.collapse(false) // 末尾
+      if (sel) { sel.removeAllRanges(); sel.addRange(range) }
+    } catch { /* 选区设不上也试着插 */ }
+    try { return document.execCommand('insertText', false, text) } catch { return false }
+  }
+
+  // 把图片塞进 composer 的附件轨：向输入框派发合成 drop 事件。
+  // 宿主的 drop 处理链（addFiles → createDrafts → draftAttachments）就是
+  // 用户拖图的官方通道，会话上下文由 DOM 携带——绕开 input.right 槽 props={}
+  // 拿不到 sessionId 的限制。DataTransfer/DragEvent 在 Chromium 可构造。
+  function dropFilesIntoComposer(files) {
+    if (typeof window === 'undefined' || typeof DataTransfer === 'undefined' || typeof DragEvent === 'undefined') return false
+    const el = findComposerEditor()
+    if (!el) return false
+    try {
+      const dt = new DataTransfer()
+      for (const f of files) dt.items.add(f)
+      const r = el.getBoundingClientRect()
+      el.dispatchEvent(new DragEvent('drop', {
+        dataTransfer: dt, bubbles: true, cancelable: true,
+        clientX: r.left + 8, clientY: r.top + 4,
+      }))
+      return true
+    } catch { return false }
+  }
+
+  // 强制缩小（用户最初需求）：静态图在浏览器端 Canvas 压到 ≤360px 的 WebP，
+  // 直接砍掉进上下文的视觉 token；GIF 原样传（Canvas 重编码会丢动画，
+  // 大肥鱼包全是动图，宁可不缩也不变静态）。
+  const STICKER_MAX_EDGE = 360
+  async function buildStickerFile(it) {
+    if (typeof fetch === 'undefined' || typeof createImageBitmap === 'undefined' || typeof File === 'undefined') {
+      throw new Error('环境不支持图片处理')
+    }
+    const r = await fetch(it.url)
+    if (!r.ok || typeof r.blob !== 'function') throw new Error(`取图失败 ${r.status}`)
+    const blob = await r.blob()
+    const isGif = blob.type === 'image/gif' || /\.gif$/i.test(it.url)
+    if (isGif) return new File([blob], `${it.displayName || it.id}.gif`, { type: 'image/gif' })
+    const bmp = await createImageBitmap(blob)
+    const scale = Math.min(1, STICKER_MAX_EDGE / Math.max(bmp.width, bmp.height))
+    if (scale >= 1 && blob.size <= 300 * 1024) {
+      // 已经够小，原样传，避免无谓重编码
+      return new File([blob], `${it.displayName || it.id}.${(blob.type.split('/')[1] || 'png').replace('jpeg', 'jpg')}`, { type: blob.type })
+    }
+    const w = Math.max(1, Math.round(bmp.width * scale))
+    const hh = Math.max(1, Math.round(bmp.height * scale))
+    const canvas = document.createElement('canvas')
+    canvas.width = w; canvas.height = hh
+    canvas.getContext('2d').drawImage(bmp, 0, 0, w, hh)
+    const out = await new Promise((resolve) => canvas.toBlob(resolve, 'image/webp', 0.82))
+    if (!out) throw new Error('webp 编码失败')
+    return new File([out], `${it.displayName || it.id}.webp`, { type: 'image/webp' })
+  }
+
+  // 候选窗点击模式：**唯一数据源=config.json 的 pickerMode**（设置页「真斗图」开关，
+  // 用户 2026-11-05 要求放设置页并联动）。曾做过候选窗底部 localStorage 开关，
+  // 两处都能改=双数据源假联动，已删——这里每次开面板/点图前读一次 /config。
+
+  async function fetchPickerMode() {
+    try {
+      const r = await fetch(`${API}/config`)
+      const j = await r.json()
+      return j?.config?.pickerMode === 'text' ? 'text' : 'image'
+    } catch { return 'image' }  // 读不到按默认（图片）走，onPick 里还有逐级兜底
+  }
+
+  const MemeGallery = ({ onClose }) => {
+    const [st, setSt] = useState(null)
+    const [tabKey, setTabKey] = useState('')   // '' = 未定，数据到了自动选第一个
+    const [pageIdx, setPageIdx] = useState(0)  // 当前标签内的页码
+    const [hover, setHover] = useState(null)   // { it, x, y }：悬停气泡预览
+    const [tip, setTip] = useState('')
+    const [mode, setMode] = useState('image')  // 打开面板时从 /config 同步（设置页「真斗图」）
+
+    const load = useCallback(async () => {
+      try {
+        const r = await fetch(`${API}/state?tab=library`)
+        const j = await r.json()
+        if (j && j.ok) setSt(j)
+      } catch { /* 拉不到就显示空页 */ }
+      setMode(await fetchPickerMode())
+    }, [])
+    useEffect(() => { void load() }, [load])
+
+    // Esc 收起（用户 UI 偏好⑧）。宿主可能在无 DOM 环境（测试/SSR）里加载本文件，
+    // 所以 window/document 的监听都要先判断存在，缺了只是少个快捷键，不能抛错。
+    useEffect(() => {
+      if (typeof window === 'undefined' || typeof window.addEventListener !== 'function') return undefined
+      const onKey = (e) => { if (e.key === 'Escape') onClose() }
+      window.addEventListener('keydown', onKey)
+      return () => window.removeEventListener('keydown', onKey)
+    }, [onClose])
+
+    // 标签序列：常用（有记录才出现）→ 各分组（包组在前、自定义组在后；
+    // 「未分组」虚拟组不进）。每个标签带自己的分页数组，‹ › 只在标签内翻页
+    // （用户 2026-11-05：26 页连翻太深，要按钮快速切换常用/大肥鱼/自定义组）。
+    const tabs = useMemo(() => {
+      if (!st) return []
+      const out = []
+      const recents = Array.isArray(st.recents) ? st.recents : []
+      if (recents.length > 0) out.push({ key: '@recent', name: '常用', pages: [recents.slice(0, PAGE_SIZE)], count: recents.length })
+      for (const g of (st.groups || [])) {
+        if (g.virtual) continue
+        const items = (st.items || []).filter((it) => it.group === g.id && it.enabled !== false && it.exists)
+        const pages = []
+        for (let i = 0; i < items.length; i += PAGE_SIZE) pages.push(items.slice(i, i + PAGE_SIZE))
+        if (pages.length > 0) out.push({ key: g.id, name: g.name, pages, count: items.length, readonly: g.readonly === true })
+      }
+      return out
+    }, [st])
+
+    // 标签失效（常用清空/组删了）→ 回落第一个；首帧自动选第一个
+    const active = tabs.find((t) => t.key === tabKey) || tabs[0]
+    useEffect(() => {
+      if (active && active.key !== tabKey) { setTabKey(active.key); setPageIdx(0) }
+    }, [active, tabKey])
+    const page = active ? active.pages[Math.min(pageIdx, active.pages.length - 1)] : null
+
+    const switchTab = (t) => { if (t.key !== tabKey) { setTabKey(t.key); setPageIdx(0); setHover(null) } }
+
+    // 点击格子 = 直接发送（用户 2026-11-05：「选中表情包后 不需要底下的预览 点击直接发送」）。
+    // 模式由设置页「真斗图」开关决定（config.pickerMode，每次点击实时读，保存即生效）：
+    //   开=图片模式：缩小后走 drop 附件通道进 composer 附件轨，双方都看得到图；
+    //   关=文字模式：插 Markdown 行（省 token），用户气泡显原始文本但 AI 能渲染读取。
+    // 记常用两种模式都做。附件失败→文本兜底→剪贴板兜底，每级都明说。
+    const onPick = async (it) => {
+      const md = `![${it.displayName}](${it.url})`
+      const useImage = (await fetchPickerMode()) === 'image'
+      setMode(useImage)
+      try {
+        await fetch(`${API}/recent`, {
+          method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ id: it.id }),
+        })
+        void load() // 常用页立刻刷新
+      } catch { /* 记不上不影响发送 */ }
+      if (useImage) {
+        try {
+          const file = await buildStickerFile(it)
+          if (dropFilesIntoComposer([file])) {
+            setTip(`已放入输入框：${it.displayName}（${Math.round(file.size / 1024)}KB），回车发送`)
+            return
+          }
+          throw new Error('输入框不接受拖图')
+        } catch (e) {
+          // 附件路失败：退文本路，明说原因
+          if (insertIntoComposer(md)) { setTip(`图片模式失败（${e.message}），已按文本插入：${it.displayName}`); return }
+          setTip(`图片与文本都没送进去：${e.message}`)
+          return
+        }
+      }
+      if (insertIntoComposer(md)) {
+        setTip(`已按文本插入：${it.displayName}，回车发送`)
+      } else if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+        try { await navigator.clipboard.writeText(md); setTip(`没找到输入框，已复制：${it.displayName}，粘贴后回车`) }
+        catch { setTip(`没找到输入框且复制失败：${it.displayName}`) }
+      } else {
+        setTip(`没找到输入框：${it.displayName}`)
+      }
+    }
+
+    // 悬停气泡：容器级 mouseover/mouseleave 统一管（移出候选窗一定清掉）
+    const onGridMove = (e) => {
+      const cell = e.target?.closest?.('[data-meme-id]')
+      if (!cell) { if (hover) setHover(null); return }
+      const id = cell.getAttribute('data-meme-id')
+      const it = (page || []).find((x) => x.id === id)
+      if (!it) return
+      const r = cell.getBoundingClientRect()
+      const host = e.currentTarget?.getBoundingClientRect?.()
+      if (!hover || hover.it.id !== id || hover.x !== Math.round(r.left) || hover.y !== Math.round(r.top)) {
+        setHover({ it, x: host ? r.left - host.left + r.width / 2 : r.left, y: host ? r.top - host.top : r.top })
+      }
+    }
+
+    return h('div', {
+      style: {
+        position: 'absolute', right: 8, bottom: 44, zIndex: 9000,
+        width: 4 * 64 + 5 * 6 + 20, boxSizing: 'border-box',
+        background: C.raised, color: 'inherit', colorScheme: detectScheme(),
+        border: `1px solid ${C.border}`, borderRadius: 12,
+        boxShadow: '0 8px 28px rgba(0,0,0,0.28)', padding: 10,
+      },
+    },
+      // 标签条：常用 | 大肥鱼 | 我的收藏 | …（点一下整组切换）
+      h('div', {
+        style: { display: 'flex', gap: 4, marginBottom: 8, flexWrap: 'wrap', alignItems: 'center' },
+      },
+        tabs.map((t) => h('button', {
+          key: t.key, type: 'button', onClick: () => switchTab(t),
+          title: `${t.name}（${t.count} 张）`,
+          style: galTabBtn(C, !!active && t.key === active.key),
+        }, t.name)),
+        h('span', { style: { flex: '1 1 auto' } }),
+        active && active.pages.length > 1 ? h('span', { style: { fontSize: 11, color: C.mute, marginRight: 2 } },
+          `${Math.min(pageIdx + 1, active.pages.length)}/${active.pages.length}`) : null,
+        h('button', { type: 'button', disabled: !active || pageIdx <= 0, onClick: () => setPageIdx((i) => Math.max(0, i - 1)), style: galBtn(C), title: '上一页' }, '‹'),
+        h('button', { type: 'button', disabled: !active || pageIdx >= active.pages.length - 1, onClick: () => setPageIdx((i) => Math.min(active.pages.length - 1, i + 1)), style: galBtn(C), title: '下一页' }, '›'),
+        h('button', { type: 'button', onClick: onClose, style: galBtn(C), title: '关闭（Esc）' }, '×'),
+      ),
+      // 4×4 网格（悬停出气泡放大，点击=直接插入 composer）
+      h('div', {
+        onMouseMove: onGridMove,
+        onMouseLeave: () => setHover(null),
+        style: { position: 'relative' },
+      },
+        page ? h('div', {
+          style: { display: 'grid', gridTemplateColumns: `repeat(${PAGE_COLS}, 64px)`, gap: 6 },
+        }, page.map((it) => h('button', {
+          key: it.id, type: 'button', 'data-meme-id': it.id, title: it.displayName,
+          onClick: () => onPick(it),
+          style: {
+            width: 64, height: 64, padding: 2, border: `1px solid ${C.border}`,
+            borderRadius: 8, background: C.bg, cursor: 'pointer', overflow: 'hidden',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          },
+        }, h('img', {
+          src: it.url, alt: it.displayName, loading: 'lazy', draggable: false,
+          style: { maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', display: 'block' },
+          onError: (e) => { e.target.style.opacity = 0.25 },
+        })))) : h('div', { style: { fontSize: 12, color: C.mute, padding: '12px 0', textAlign: 'center' } },
+          st ? '这个组没有可用的图' : '加载中…'),
+        // 悬停气泡：盖在网格上方（zIndex 高于格子），跟随当前格
+        hover ? h('div', {
+          style: {
+            position: 'absolute', left: hover.x, top: hover.y - 8, transform: 'translate(-50%, -100%)',
+            zIndex: 10, pointerEvents: 'none', padding: 6, borderRadius: 10,
+            background: C.raised, border: `1px solid ${C.border}`,
+            boxShadow: '0 6px 20px rgba(0,0,0,0.3)', maxWidth: 220, textAlign: 'center',
+          },
+        },
+          h('img', {
+            src: hover.it.url, alt: hover.it.displayName, draggable: false,
+            style: { display: 'block', maxWidth: 160, maxHeight: 160, objectFit: 'contain' },
+          }),
+          h('div', { style: { fontSize: 11, marginTop: 4, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 208 } },
+            `${hover.it.displayName}｜${hover.it.emotion || '未标情绪'}`),
+        ) : null,
+      ),
+      // 模式只读指示（切换在设置页「真斗图」；此处不放按钮，避免双数据源）
+      h('div', {
+        style: { marginTop: 8, paddingTop: 6, borderTop: `1px solid ${C.border}`, fontSize: 11, color: C.mute },
+      }, mode === 'text'
+        ? '文字模式（省 token）· 改此行为：设置 → 斗图 → 真斗图'
+        : '图片模式（已缩小）· 改此行为：设置 → 斗图 → 真斗图'),
+      tip ? h('div', { style: { marginTop: 6, fontSize: 11, color: C.mute } }, tip) : null,
+    )
+  }
+
+  function galTabBtn(C, on) {
+    return {
+      height: 20, padding: '0 8px', fontSize: 11, lineHeight: 1, cursor: 'pointer',
+      borderRadius: 6, color: 'inherit',
+      border: `1px solid ${on ? C.accent : C.border}`,
+      background: on ? C.accentSoft : C.surface,
+      fontWeight: on ? 600 : 400,
+    }
+  }
+
+  function galBtn(C) {
+    return {
+      width: 24, height: 24, padding: 0, border: `1px solid ${C.border}`,
+      borderRadius: 6, background: C.surface, color: 'inherit',
+      fontSize: 14, lineHeight: 1, cursor: 'pointer',
+      display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+    }
+  }
+
   module.exports.name = 'nekowhale-meme-client'
   module.exports.inject = ['slots']
   module.exports.apply = function apply(ctx) {
@@ -1288,6 +1672,14 @@ window.__ModuleLoader__.load({ id: 'nekowhale-meme', factory: (require) => {
       ))
     } catch (e) {
       try { console.warn('[nekowhale-meme] plugin page disabled:', e) } catch {}
+    }
+    try {
+      ctx.slots.inject('conversation.input.right', () => ctx.slots.register(
+        { name: 'conversation.input.right', id: 'nekowhale-meme.picker', order: 10, label: '表情斗图' },
+        MemePickerButton,
+      ))
+    } catch (e) {
+      try { console.warn('[nekowhale-meme] composer button disabled:', e) } catch {}
     }
   }
   return module.exports

@@ -722,6 +722,8 @@ export function apply(ctx, config) {
     }
     items = items.map((it) => publicItem(it))
     const health = store.readHealth()
+    // 候选窗第一页「常用」：最近使用的 12 张（只记记录不记次数），最新在前。
+    const recents = store.recentIds().map((id) => publicItem(store.item(id)))
     return {
       ok: true,
       tab,
@@ -729,6 +731,7 @@ export function apply(ctx, config) {
       counts,
       groups: groupsWithUngrouped,
       items,
+      recents,
       emotions: EMOTIONS,
       autoSend: cfg.autoSend,
       dataDir: store.dataDir,
@@ -1016,6 +1019,8 @@ export function apply(ctx, config) {
             // 登记到本会话槽：limitPer10 靠这个计数，回合结束后也还认得出「最近 10 轮发过几张」
             const sid = String(exec?.agent?.session?.header?.id ?? exec?.agent?.session?.id ?? '')
             if (sid) sessionSlot(sid).sentTurns.push(sessionSlot(sid).turn)
+            // 「常用」页数据源：记一条使用记录（只记最近 12 张，不记次数）
+            try { store.recordRecent(pick.id) } catch { /* 记不上不影响发图 */ }
             const out = [
               `![${pick.displayName}](${imgUrl(pick.id)})`,
               `本地文件：${p}`,
@@ -1107,6 +1112,20 @@ export function apply(ctx, config) {
             if (body?.confirm !== true) { json(res, 400, { ok: false, error: '需要 confirm: true 才会整份清空（不支持单条清理）' }); return }
             store.clearMissing()
             json(res, 200, { ok: true })
+            return
+          }
+
+          // ---- 候选窗「常用」页写回：用户手动点选一张也算用过一次
+          // （只记记录不记次数；与模型侧 meme_send 共用同一份 recents）
+          if (rest === '/recent' && req.method === 'POST') {
+            const body = await readJsonBody(req)
+            const id = String(body?.id ?? '')
+            const it = store.item(id)
+            if (!it || it.state !== STATE_LIBRARY || it.enabled === false) {
+              json(res, 200, { ok: false, error: '条目不在库内或已停用' })
+              return
+            }
+            json(res, 200, { ok: true, recents: store.recordRecent(id) })
             return
           }
 
