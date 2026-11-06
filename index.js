@@ -1019,8 +1019,9 @@ export function apply(ctx, config) {
             // 登记到本会话槽：limitPer10 靠这个计数，回合结束后也还认得出「最近 10 轮发过几张」
             const sid = String(exec?.agent?.session?.header?.id ?? exec?.agent?.session?.id ?? '')
             if (sid) sessionSlot(sid).sentTurns.push(sessionSlot(sid).turn)
-            // 「常用」页数据源：记一条使用记录（只记最近 12 张，不记次数）
-            try { store.recordRecent(pick.id) } catch { /* 记不上不影响发图 */ }
+            // 注意：AI 发图**不记**「常用」——常用页只记用户自己的点选
+            // （POST /recent）。11-05 曾在此记 recordRecent，把 AI 发的猫 GIF
+            // 混进用户常用页，被用户判为 bug 删除（11-06）。
             const out = [
               `![${pick.displayName}](${imgUrl(pick.id)})`,
               `本地文件：${p}`,
